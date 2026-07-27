@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Page not found — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="status-page fade-in">
+    <span class="status-page__icon">{{ icons.icon('search', size=32) }}</span>
+    <h1>Page not found</h1>
+    <p>The page you're looking for doesn't exist, may have been moved, or the resource may
+      have been removed by its lecturer.</p>
+    <a href="{{ url_for('main.landing') }}" class="btn btn-primary mt-4">Back to Home</a>
+  </div>
+</div>
+{% endblock %}

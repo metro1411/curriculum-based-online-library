@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Dashboard | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in student-dashboard">
+  <div class="page-header dashboard-hero">
+    <span class="page-header__eyebrow">Your learning workspace</span>
+    <h1>Welcome back, {{ current_user.full_name.split(' ')[0] }}.</h1>
+    <p>Pick up where you left off, protect your focus, and turn every study session into progress.</p>
+    <div class="context-pills">
+      {% if current_user.programme %}<span class="context-pill">{{ icons.icon('bookmark', size=13) }} {{ current_user.programme.name }}</span>{% endif %}
+      {% if current_user.nta_level %}<span class="context-pill">{{ icons.icon('layers', size=13) }} {{ current_user.nta_level.label }}</span>{% endif %}
+      {% if current_user.semester %}<span class="context-pill">{{ icons.icon('folder', size=13) }} {{ current_user.semester.label }}</span>{% endif %}
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('student.departments') }}" class="btn btn-primary btn-lg">{{ icons.icon('grid', size=18) }} Explore learning library</a>
+      <a href="{{ url_for('ai.assistant') }}" class="btn btn-secondary btn-lg">{{ icons.icon('sparkles', size=18) }} Ask DIT AI</a>
+      <button type="button" class="btn btn-ghost btn-lg" data-open-search>{{ icons.icon('search', size=18) }} Search</button>
+    </div>
+  </div>
+
+  <section class="dashboard-stat-grid" aria-label="Your learning activity">
+    <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('eye', size=18) }}</span><div><strong>{{ dashboard_metrics.resources_viewed }}</strong><span>Resources viewed</span></div></article>
+    <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('bookmark', size=18) }}</span><div><strong>{{ dashboard_metrics.saved }}</strong><span>Saved for review</span></div></article>
+    <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('download', size=18) }}</span><div><strong>{{ dashboard_metrics.downloads }}</strong><span>Downloads</span></div></article>
+    <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('sparkles', size=18) }}</span><div><strong>{{ dashboard_metrics.ai_questions }}</strong><span>AI questions</span></div></article>
+  </section>
+
+  <section class="dashboard-grid dashboard-grid--priority">
+    <article class="card card-pad dashboard-feature-card">
+      <div class="section-header"><div><span class="section-kicker">Resume with intent</span><h2>{{ icons.icon('clock', size=18) }} Continue learning</h2></div><a href="{{ url_for('student.learning_insights') }}" class="text-link">Insights {{ icons.icon('arrow-right', size=13) }}</a></div>
+      {% if continue_learning %}
+        {% for view in continue_learning %}
+        <a class="mini-resource" href="{{ url_for('student.resource_view', resource_id=view.resource.id) }}"><span class="mini-resource__icon">{{ icons.icon('file-text', size=17) }}</span><div><div class="mini-resource__title">{{ view.resource.title }}</div><div class="mini-resource__meta">{{ view.resource.module.name }} · Ready for your next focused session</div></div>{{ icons.icon('arrow-right', size=15) }}</a>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state empty-state--compact"><span class="empty-state__icon">{{ icons.icon('book-open', size=27) }}</span><h3>Start your first learning path</h3><p>Open a module resource and it will appear here for easy continuation.</p><a href="{{ url_for('student.departments') }}" class="btn btn-secondary btn-sm">Explore modules</a></div>
+      {% endif %}
+    </article>
+
+    <article class="card card-pad">
+      <div class="section-header"><div><span class="section-kicker">Keep close</span><h2>{{ icons.icon('bookmark', size=18) }} Saved for review</h2></div></div>
+      {% if saved_resources %}
+        {% for resource in saved_resources %}
+        <a class="mini-resource" href="{{ url_for('student.resource_view', resource_id=resource.id) }}"><span class="mini-resource__icon">{{ icons.icon('bookmark', size=16) }}</span><div><div class="mini-resource__title">{{ resource.title }}</div><div class="mini-resource__meta">{{ resource.module.name }} · {{ resource.type_label }}</div></div></a>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state empty-state--compact"><p>Save useful notes, guides, and references to build a personal revision shelf.</p></div>
+      {% endif %}
+    </article>
+
+    <article class="card card-pad">
+      <div class="section-header"><div><span class="section-kicker">Latest activity</span><h2>{{ icons.icon('download', size=18) }} Downloads</h2></div><a href="{{ url_for('student.downloads') }}" class="text-link">View all {{ icons.icon('arrow-right', size=13) }}</a></div>
+      {% if recent_downloads %}
+        {% for download in recent_downloads %}
+        <a class="mini-resource" href="{{ url_for('student.resource_view', resource_id=download.resource.id) }}"><span class="mini-resource__icon">{{ icons.icon('download', size=16) }}</span><div><div class="mini-resource__title">{{ download.resource.title }}</div><div class="mini-resource__meta">{{ download.resource.module.name }} · {{ download.downloaded_at.strftime('%d %b %Y') }}</div></div></a>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state empty-state--compact"><p>Downloads appear here once you save a copy for offline study.</p></div>
+      {% endif %}
+    </article>
+
+    <article class="card card-pad">
+      <div class="section-header"><div><span class="section-kicker">Recommended next</span><h2>{{ icons.icon('sparkles', size=18) }} Continue building</h2></div></div>
+      {% if recommended %}
+        {% for resource in recommended %}
+        <a class="mini-resource" href="{{ url_for('student.resource_view', resource_id=resource.id) }}"><span class="mini-resource__icon">{{ icons.icon('shield-check', size=16) }}</span><div><div class="mini-resource__title">{{ resource.title }}</div><div class="mini-resource__meta">{{ resource.module.name }} · {{ resource.type_label }}</div></div></a>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state empty-state--compact"><p>New verified materials and helpful next resources will appear here.</p></div>
+      {% endif %}
+    </article>
+  </section>
+</div>
+{% endblock %}

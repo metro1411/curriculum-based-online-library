@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Select teaching workspace | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container container-narrow fade-in">
+  <div class="page-header page-header--compact">
+    <span class="page-header__eyebrow">Lecturer onboarding</span>
+    <h1>Open your teaching workspace</h1>
+    <p>Confirm the academic context for the module you teach. Your dashboard, students, analytics and content are scoped to this selection.</p>
+  </div>
+  <form class="card card-pad context-workflow" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <ol class="workflow-steps" aria-label="Teaching context selection steps">
+      <li><span>1</span><div><small>Department</small><strong>Electrical Engineering</strong></div></li>
+      <li><span>2</span><div><small>Academic level</small><strong>NTA Level 5</strong></div></li>
+      <li><span>3</span><div><small>Programme</small><strong>Electrical Engineering</strong></div></li>
+      <li><span>4</span><div><small>Semester</small><strong>Semester 2</strong></div></li>
+      <li class="workflow-steps__current"><span>5</span><div><small>Assigned module</small><strong>Select your module</strong></div></li>
+    </ol>
+    <div class="form-group">
+      <label class="form-label" for="module_id">Module</label>
+      <select class="form-select" id="module_id" name="module_id" required>
+        <option value="">Select an assigned module</option>
+        {% for assignment in assignments %}
+        <option value="{{ assignment.module.id }}">{{ assignment.module.name }}</option>
+        {% endfor %}
+      </select>
+      <p class="form-hint">Only modules assigned to your account can be opened.</p>
+    </div>
+    {% if assignments %}
+    <button class="btn btn-primary btn-lg" type="submit">Open module dashboard {{ icons.icon('arrow-right', size=17) }}</button>
+    {% else %}
+    <div class="empty-state"><h3>No module assignment</h3><p>Your account has no active teaching assignment yet. Contact the academic administrator for access.</p></div>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}

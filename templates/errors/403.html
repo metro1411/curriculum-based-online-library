@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Access restricted — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="status-page fade-in">
+    <span class="status-page__icon">{{ icons.icon('lock', size=32) }}</span>
+    <h1>Access restricted</h1>
+    <p>This area is restricted to a different account type. Students and lecturers use
+      separate portals in Smart DIT Online Archive.</p>
+    <a href="{{ url_for('main.landing') }}" class="btn btn-primary mt-4">Back to Home</a>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,24 @@
+# Runtime data — created automatically by app.py on first run
+/data/
+/uploads/
+/instance/
+
+# Environment secrets
+.env*
+data/.flask_secret_key
+
+# Delivery archives are generated locally, never source code.
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

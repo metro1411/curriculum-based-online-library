@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}{{ semester.label }} Modules — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  {% include "partials/breadcrumb.html" %}
+  <div class="page-header">
+    <span class="page-header__eyebrow">{{ programme.name }} &middot; {{ level.label }} &middot; {{ semester.label }}</span>
+    <h1>Modules</h1>
+    <p>Select a module to view its academic resources.</p>
+  </div>
+
+  <div class="entity-grid">
+    {% for module in modules %}
+    <a class="entity-card" href="{{ url_for('student.module_resources', module_id=module.id) }}">
+      <div class="entity-card__top">
+        <span class="entity-card__icon">{{ icons.icon('book-open', size=20) }}</span>
+        <span class="badge badge-neutral">{{ resource_counts.get(module.id, 0) }} resource{{ 's' if resource_counts.get(module.id, 0) != 1 else '' }}</span>
+      </div>
+      <h3>{{ module.name }}</h3>
+      <p>{{ module.description }}</p>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

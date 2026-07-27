@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <meta name="description" content="{{ app_tagline }}">
+  <meta name="theme-color" content="#08766e">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <link rel="icon" href="data:image/svg+xml,{% filter urlencode %}<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%230f766e'/><path d='M6 8c0-1 .8-2 2-2h3v10H8c-1 0-2 1-2 2V8z M18 8c0-1-.8-2-2-2h-3v10h3c1 0 2 1 2 2V8z' fill='white'/></svg>{% endfilter %}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body data-theme="light">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <div class="page-shell">
+    {% include "partials/navbar.html" %}
+    {% include "partials/flash.html" %}
+
+    <main id="main-content" class="page-main" tabindex="-1">
+      {% block content %}{% endblock %}
+    </main>
+
+    {% include "partials/footer.html" %}
+  </div>
+
+  {% include "partials/confirm_modal.html" %}
+
+  {% if current_user.is_authenticated and current_user.is_student %}
+  <div class="quick-search" data-quick-search hidden>
+    <button class="quick-search__backdrop" type="button" data-close-search aria-label="Close search"></button>
+    <section class="quick-search__panel" role="dialog" aria-modal="true" aria-labelledby="quick-search-title">
+      <div class="quick-search__heading"><div><span class="section-kicker">Search the learning library</span><h2 id="quick-search-title">Find a resource or module</h2></div><button class="btn btn-ghost btn-icon" type="button" data-close-search aria-label="Close search">&times;</button></div>
+      <form method="GET" action="{{ url_for('student.search') }}" class="quick-search__form"><label class="sr-only" for="quick-search-input">Search learning materials</label><input id="quick-search-input" class="form-input" type="search" name="q" placeholder="Try ‘feedback systems’, ‘probability’, or ‘8085’" autocomplete="off" data-quick-search-input><button class="btn btn-primary" type="submit">Search</button></form>
+      <p class="quick-search__hint">Searches your current semester’s modules and learning materials.</p>
+    </section>
+  </div>
+  {% endif %}
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% import "partials/resource_card.html" as rc %}
+{% block title %}{{ module.name }} — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  {% include "partials/breadcrumb.html" %}
+
+  <div class="page-header">
+    <span class="page-header__eyebrow">{{ programme.name }} &middot; {{ level.label }} &middot; {{ semester.label }}</span>
+    <h1>{{ module.name }}</h1>
+    {% if module.description %}<p>{{ module.description }}</p>{% endif %}
+    <div class="context-pills">
+      <span class="context-pill">{{ icons.icon('grid', size=13) }} {{ department.name }}</span>
+      <span class="context-pill">{{ icons.icon('bookmark', size=13) }} {{ programme.name }}</span>
+      <span class="context-pill">{{ icons.icon('layers', size=13) }} {{ level.label }}</span>
+      <span class="context-pill">{{ icons.icon('folder', size=13) }} {{ semester.label }}</span>
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('ai.assistant', module_id=module.id) }}" class="btn btn-primary">
+        {{ icons.icon('sparkles', size=16) }} Ask DIT AI about {{ module.name }}
+      </a>
+    </div>
+  </div>
+
+  {% if topics %}
+  <section class="card module-learning-path">
+    <div class="module-learning-path__intro">
+      <span class="section-kicker">Module learning path</span>
+      <h2>Build confidence one topic at a time</h2>
+      <p>Follow the sequence below, then use DIT AI to practise, revise, and check your understanding.</p>
+    </div>
+    <ol class="module-learning-path__steps">
+      {% for topic in topics %}
+      <li>
+        <span class="module-learning-path__number">{{ loop.index }}</span>
+        <div>
+          <small>{{ topic.unit_label or 'Curriculum topic' }}</small>
+          <strong>{{ topic.title }}</strong>
+          {% if topic.learning_outcome or topic.description %}<p>{{ topic.learning_outcome or topic.description }}</p>{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% if total_count == 0 %}
+  <div class="card empty-state">
+    <span class="empty-state__icon">{{ icons.icon('folder', size=32) }}</span>
+    <h3>No resources yet for this module</h3>
+    <p>Your lecturer hasn't published any materials here yet. Check back soon, or ask the
+      DIT AI Learning Assistant for general guidance in the meantime.</p>
+    <a href="{{ url_for('ai.assistant', module_id=module.id) }}" class="btn btn-secondary">Ask DIT AI</a>
+  </div>
+  {% else %}
+    {% for category_label, items in grouped.items() %}
+    <div class="category-block">
+      <div class="category-block__title">
+        <h3 class="mb-0">{{ category_label }}</h3>
+        <span class="category-block__count">{{ items|length }}</span>
+      </div>
+      <div class="resource-grid">
+        {% for resource in items %}
+          {{ rc.resource_card(resource) }}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}

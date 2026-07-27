@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Upload Resource — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  {% include "partials/breadcrumb.html" %}
+  <div class="page-header">
+    <span class="page-header__eyebrow">Upload Wizard &middot; Step 4 of 6</span>
+    <h1>Select a semester</h1>
+    <p>{{ programme.name }} &middot; {{ level.label }}</p>
+  </div>
+
+  <div class="entity-grid">
+    {% for sem in semesters %}
+    <a class="entity-card {{ '' if sem.is_active else 'entity-card--muted' }}" href="{{ url_for('lecturer.upload_modules', dept_slug=department.slug, prog_slug=programme.slug, level_number=level.level_number, semester_number=sem.semester_number) }}">
+      <div class="entity-card__top">
+        <span class="entity-card__icon">{{ icons.icon('folder', size=20) }}</span>
+        {% if not sem.is_active %}<span class="badge badge-coming-soon">Coming Soon</span>{% endif %}
+      </div>
+      <h3>{{ sem.label }}</h3>
+      <p>{{ sem.modules|length }} module{{ 's' if sem.modules|length != 1 else '' }}</p>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

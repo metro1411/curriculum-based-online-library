@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Upload Resource — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  {% include "partials/breadcrumb.html" %}
+  <div class="page-header">
+    <span class="page-header__eyebrow">Upload Wizard &middot; Step 2 of 6</span>
+    <h1>Select a programme</h1>
+    <p>{{ department.name }}</p>
+  </div>
+
+  <div class="entity-grid">
+    {% for prog in programmes %}
+    <a class="entity-card {{ '' if prog.is_active else 'entity-card--muted' }}" href="{{ url_for('lecturer.upload_levels', dept_slug=department.slug, prog_slug=prog.slug) }}">
+      <div class="entity-card__top">
+        <span class="entity-card__icon">{{ icons.icon('bookmark', size=20) }}</span>
+        {% if not prog.is_active %}<span class="badge badge-coming-soon">Coming Soon</span>{% endif %}
+      </div>
+      <h3>{{ prog.name }}</h3>
+      <p>{{ prog.description }}</p>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

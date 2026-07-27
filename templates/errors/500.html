@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Something went wrong — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="status-page fade-in">
+    <span class="status-page__icon">{{ icons.icon('alert-circle', size=32) }}</span>
+    <h1>Something went wrong on our end</h1>
+    <p>An unexpected error occurred while processing your request. This has been logged.
+      Please try again, and if the problem continues, try a different action or come back
+      later.</p>
+    <a href="{{ url_for('main.landing') }}" class="btn btn-primary mt-4">Back to Home</a>
+  </div>
+</div>
+{% endblock %}

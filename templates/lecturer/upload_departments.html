@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Upload Resource — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header">
+    <span class="page-header__eyebrow">Upload Wizard &middot; Step 1 of 6</span>
+    <h1>Select a department</h1>
+    <p>Choose the department that owns the module you want to publish a resource to.</p>
+  </div>
+
+  <div class="entity-grid">
+    {% for dept in departments %}
+    <a class="entity-card {{ '' if dept.is_active else 'entity-card--muted' }}" href="{{ url_for('lecturer.upload_programmes', dept_slug=dept.slug) }}">
+      <div class="entity-card__top">
+        <span class="entity-card__icon">{{ icons.icon('grid', size=20) }}</span>
+        {% if not dept.is_active %}<span class="badge badge-coming-soon">Coming Soon</span>{% endif %}
+      </div>
+      <h3>{{ dept.name }}</h3>
+      <p>{{ dept.description }}</p>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

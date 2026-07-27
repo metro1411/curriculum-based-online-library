@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Search | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header page-header--compact"><span class="page-header__eyebrow">Academic search</span><h1>Find learning materials</h1><p>Search modules, notes, references and study resources.</p></div>
+  <form method="GET" class="search-form"><label class="sr-only" for="q">Search</label><input class="form-input" id="q" type="search" name="q" value="{{ query }}" placeholder="Search Control Engineering, feedback, notes…"><button class="btn btn-primary">{{ icons.icon('search', size=16) }} Search</button></form>
+  {% if query %}<div class="search-results"><h2>Results for “{{ query }}”</h2>{% for module in modules %}<a class="search-result" href="{{ url_for('student.module_resources', module_id=module.id) }}"><span>{{ icons.icon('layers', size=18) }}</span><div><strong>{{ module.name }}</strong><p>{{ module.description }}</p></div></a>{% endfor %}{% for resource in resources %}<a class="search-result" href="{{ url_for('student.resource_view', resource_id=resource.id) }}"><span>{{ icons.icon('file-text', size=18) }}</span><div><strong>{{ resource.title }}</strong><p>{{ resource.module.name }} · {{ resource.type_label }}</p></div></a>{% else %}{% if not modules %}<div class="empty-state"><p>No matching materials were found. Try a module or topic name.</p></div>{% endif %}{% endfor %}</div>{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Manage Resources — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header">
+    <span class="page-header__eyebrow">Lecturer Portal</span>
+    <h1>Manage Resources</h1>
+    <p>Search, filter, edit, or remove resources you've published.</p>
+  </div>
+
+  <form method="GET" class="filter-bar">
+    <input class="form-input filter-bar__search" type="search" name="q" value="{{ search }}" placeholder="Search by title or description…">
+    <select class="form-select" name="module_id" onchange="this.form.submit()">
+      <option value="">All modules</option>
+      {% for m in modules %}
+      <option value="{{ m.id }}" {{ 'selected' if selected_module_id == m.id }}>{{ m.name }}</option>
+      {% endfor %}
+    </select>
+    <select class="form-select" name="type" onchange="this.form.submit()">
+      <option value="">All types</option>
+      {% for key, label in resource_types %}
+      <option value="{{ key }}" {{ 'selected' if selected_type == key }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select class="form-select" name="status" onchange="this.form.submit()">
+      <option value="">Any status</option>
+      <option value="verified" {{ 'selected' if selected_status == 'verified' }}>DIT Verified</option>
+      <option value="pending" {{ 'selected' if selected_status == 'pending' }}>Pending Review</option>
+    </select>
+    <button type="submit" class="btn btn-secondary">{{ icons.icon('search', size=15) }} Filter</button>
+    {% if search or selected_module_id or selected_type or selected_status %}
+    <a href="{{ url_for('lecturer.manage_resources') }}" class="btn btn-ghost">Clear</a>
+    {% endif %}
+  </form>
+
+  {% if not resources %}
+  <div class="card empty-state">
+    <span class="empty-state__icon">{{ icons.icon('search', size=32) }}</span>
+    <h3>No resources match</h3>
+    <p>Try clearing your filters, or upload a new resource.</p>
+    <a href="{{ url_for('lecturer.upload_departments') }}" class="btn btn-primary">Upload New Resource</a>
+  </div>
+  {% else %}
+  <div class="card table-card">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Module</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Uploaded</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in resources %}
+        <tr>
+          <td>
+            <div class="row-title">{{ r.title }}</div>
+          </td>
+          <td>{{ r.module.name }}</td>
+          <td>{{ r.type_label }}</td>
+          <td>
+            {% if r.is_verified %}
+              <span class="badge badge-verified">{{ icons.icon('shield-check', size=11) }} Verified</span>
+            {% else %}
+              <span class="badge badge-pending">{{ icons.icon('clock', size=11) }} Pending</span>
+            {% endif %}
+          </td>
+          <td>{{ r.created_at.strftime('%d %b %Y') }}</td>
+          <td>
+            <div class="row-actions">
+              <a class="btn btn-ghost btn-sm btn-icon" href="{{ url_for('student.resource_view', resource_id=r.id) }}" title="View" aria-label="View">{{ icons.icon('eye', size=15) }}</a>
+              <a class="btn btn-ghost btn-sm btn-icon" href="{{ url_for('lecturer.edit_resource', resource_id=r.id) }}" title="Edit" aria-label="Edit">{{ icons.icon('edit', size=15) }}</a>
+              <form method="POST" action="{{ url_for('lecturer.delete_resource', resource_id=r.id) }}"
+                    data-confirm="This will permanently delete &quot;{{ r.title }}&quot; and its file." data-confirm-title="Delete resource?">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-ghost btn-sm btn-icon" title="Delete" aria-label="Delete" style="color:var(--error);">{{ icons.icon('trash', size=15) }}</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

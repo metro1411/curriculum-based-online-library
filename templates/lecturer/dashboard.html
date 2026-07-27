@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}{{ module.name }} dashboard | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in analytics-page lecturer-overview">
+  <div class="module-banner">
+    <div>
+      <span class="page-header__eyebrow">Lecturer workspace</span>
+      <h1>{{ module.name }}</h1>
+      <p>{{ module.semester.nta_level.programme.name }} &middot; {{ module.semester.nta_level.label }} &middot; {{ module.semester.label }}</p>
+    </div>
+    <div class="hero-actions">
+      <form method="GET" class="analytics-filter"><label class="sr-only" for="days">Analytics period</label><select class="form-select" id="days" name="days" onchange="this.form.submit()"><option value="7" {{ 'selected' if days == 7 }}>Last 7 days</option><option value="30" {{ 'selected' if days == 30 }}>Last 30 days</option><option value="90" {{ 'selected' if days == 90 }}>Last 90 days</option></select></form>
+      <a href="{{ url_for('lecturer.module_content', module_id=module.id) }}" class="btn btn-secondary">{{ icons.icon('edit', size=16) }} Manage content</a>
+      <a href="{{ url_for('lecturer.upload_form', module_id=module.id) }}" class="btn btn-primary">{{ icons.icon('upload', size=16) }} Add material</a>
+    </div>
+  </div>
+
+  <section class="stat-grid lecturer-kpis" aria-label="Learning metrics">
+    <article class="card stat-card"><div class="stat-card__value">{{ insights.enrolled }}</div><div class="stat-card__label">Enrolled learners</div><small>Eligible for this module</small></article>
+    <article class="card stat-card"><div class="stat-card__value">{{ insights.active }}</div><div class="stat-card__label">Active learners</div><small>Meaningful activity in {{ days }} days</small></article>
+    <article class="card stat-card stat-card--positive"><div class="stat-card__value">{{ insights.engagement_rate }}%</div><div class="stat-card__label">Engagement rate</div><small>Active of enrolled learners</small></article>
+    <article class="card stat-card"><div class="stat-card__value">{{ insights.study_minutes }}</div><div class="stat-card__label">Study minutes</div><small>{{ insights.average_study_minutes }} min per active learner</small></article>
+    <article class="card stat-card"><div class="stat-card__value">{{ insights.resource_adoption }}%</div><div class="stat-card__label">Resource reach</div><small>Published materials opened</small></article>
+    <article class="card stat-card stat-card--attention"><div class="stat-card__value">{{ insights.at_risk }}</div><div class="stat-card__label">Needs follow-up</div><small>Not active in this period</small></article>
+  </section>
+
+  <section class="analytics-grid lecturer-health-grid">
+    <article class="card card-pad analytics-panel analytics-panel--wide">
+      <div class="section-header"><div><span class="section-kicker">Engagement trend</span><h2>Learning activity</h2></div><span class="badge badge-teal">{{ days }} days</span></div>
+      {% if insights.events %}
+      <div class="bar-chart" aria-label="Daily learning activity chart">{% for point in insights.timeline %}<div class="bar-chart__column" title="{{ point.label }}: {{ point.students }} learning actions"><i style="height:{{ point.height }}%"></i><small>{{ point.label if loop.index0 % 5 == 0 else '' }}</small></div>{% endfor %}</div>
+      <div class="chart-summary"><span><strong>{{ insights.active_days }}</strong> active learning days</span><span><strong>{{ insights.questions }}</strong> AI support requests</span><span><strong>{{ insights.topic_coverage }}%</strong> topic coverage</span></div>
+      {% else %}
+      <div class="empty-state"><span class="empty-state__icon">{{ icons.icon('bar-chart', size=30) }}</span><h3>Learning metrics will appear here</h3><p>Resource study, topic progress and AI support requests are aggregated automatically.</p></div>
+      {% endif %}
+    </article>
+    <article class="card card-pad analytics-panel class-health-card">
+      <span class="section-kicker">Class health</span><h2>Engagement snapshot</h2>
+      <div class="health-score"><strong>{{ insights.engagement_rate }}%</strong><span>of enrolled learners active</span></div>
+      <div class="metric-meter"><span style="width: {{ insights.engagement_rate }}%"></span></div>
+      {% if insights.at_risk %}<p><strong>{{ insights.at_risk }} learner{{ '' if insights.at_risk == 1 else 's' }}</strong> may benefit from a concise revision prompt or a new practice resource.</p><a class="btn btn-secondary btn-sm" href="{{ url_for('lecturer.module_content', module_id=module.id) }}">Publish learning support</a>{% else %}<p>All enrolled learners have recent activity. Maintain momentum with the next topic or practice set.</p>{% endif %}
+      <div class="feedback-summary"><span>AI response rating</span><strong>{{ insights.average_rating if insights.average_rating else '—' }}</strong><span>{{ insights.unclear_answers }} clarity report{{ '' if insights.unclear_answers == 1 else 's' }}</span></div>
+    </article>
+  </section>
+
+  <section class="analytics-grid analytics-grid--three">
+    <article class="card card-pad"><div class="section-header"><div><span class="section-kicker">Curriculum signal</span><h2>Topic activity</h2></div></div>{% for item in insights.topic_rows %}<div class="topic-row"><div><strong>{{ item.topic.title }}</strong><small>{{ item.actions }} learning action{{ '' if item.actions == 1 else 's' }}</small></div><span>{{ item.actions }}</span></div>{% else %}<div class="empty-state"><p>Add curriculum topics to start topic-level tracking.</p></div>{% endfor %}</article>
+    <article class="card card-pad"><div class="section-header"><div><span class="section-kicker">Resource demand</span><h2>Popular resources</h2></div></div>{% for item in insights.popular_resources %}<div class="insight-list-item"><span class="rank">{{ item.views }}</span><div><strong>{{ item.resource.title }}</strong><small>{{ item.resource.type_label }} · {{ item.views }} view{{ '' if item.views == 1 else 's' }}</small></div></div>{% else %}<div class="empty-state"><p>Resource popularity will appear as students open materials.</p></div>{% endfor %}</article>
+    <article class="card card-pad"><div class="section-header"><div><span class="section-kicker">Student questions</span><h2>Repeated support needs</h2></div></div>{% for question, count in insights.repeated_questions %}<div class="insight-list-item"><span class="rank">{{ count }}</span><div><strong>{{ question }}</strong><small>AI support request{{ '' if count == 1 else 's' }}</small></div></div>{% else %}<div class="empty-state"><p>No repeated AI questions recorded yet.</p></div>{% endfor %}</article>
+  </section>
+</div>
+{% endblock %}

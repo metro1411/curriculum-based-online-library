@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}{{ programme.name }} — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  {% include "partials/breadcrumb.html" %}
+  <div class="page-header">
+    <span class="page-header__eyebrow">{{ programme.name }}</span>
+    <h1>Choose your NTA level</h1>
+    <p>Select your current National Council for Technical Education (NTA) level.</p>
+  </div>
+
+  <div class="entity-grid">
+    {% for level in levels %}
+    <a class="entity-card {{ '' if level.is_active else 'entity-card--muted' }}" href="{{ url_for('student.semesters', dept_slug=department.slug, prog_slug=programme.slug, level_number=level.level_number) }}">
+      <div class="entity-card__top">
+        <span class="entity-card__icon">{{ icons.icon('layers', size=20) }}</span>
+        {% if not level.is_active %}<span class="badge badge-coming-soon">Coming Soon</span>{% endif %}
+      </div>
+      <h3>{{ level.label }}</h3>
+      <p>{{ 'Available for learning' if level.is_active else 'Coming soon' }}</p>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

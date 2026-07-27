@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Edit {{ resource.title }} — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container-narrow fade-in">
+  <div class="page-header">
+    <span class="page-header__eyebrow">{{ resource.module.name }}</span>
+    <h1>Edit Resource</h1>
+  </div>
+
+  <form method="POST" enctype="multipart/form-data" class="card card-pad">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="form-group">
+      <label class="form-label" for="title">Resource title <span style="color:var(--error);">*</span></label>
+      <input class="form-input" id="title" name="title" type="text" required maxlength="250" value="{{ resource.title }}">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="description">Description</label>
+      <textarea class="form-textarea" id="description" name="description" maxlength="1000">{{ resource.description or '' }}</textarea>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Resource type</label>
+      <div class="type-pill-group">
+        {% for key, label in resource_types %}
+        <label class="type-pill">
+          <input type="radio" name="resource_type" value="{{ key }}" {{ 'checked' if key == resource.resource_type }}>
+          <span>{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <hr style="border: none; border-top: 1px solid var(--border-color); margin: 24px 0;">
+
+    {% if resource.stored_filename %}
+    <div class="form-group">
+      <label class="form-label">Current file</label>
+      <p class="text-muted" style="font-size:0.85rem;">{{ resource.original_filename }} ({{ resource.file_size_bytes|filesize }})</p>
+      <label class="form-file-drop" tabindex="0">
+        {{ icons.icon('upload', size=24) }}
+        <p class="mb-0 mt-4" style="font-weight:650;">Click to replace the file (optional)</p>
+        <p class="text-muted mb-0" style="font-size:0.8rem;">PDF, DOCX, PPTX, TXT, MD, MP4 or WEBM &middot; up to 30 MB</p>
+        <div data-filename style="display:none;"></div>
+        <input type="file" name="file" accept=".pdf,.docx,.pptx,.txt,.md,.mp4,.webm">
+      </label>
+    </div>
+    {% else %}
+    <div class="form-group">
+      <label class="form-label" for="external_url">External link</label>
+      <input class="form-input" id="external_url" name="external_url" type="url" value="{{ resource.external_url or '' }}">
+    </div>
+    {% endif %}
+
+    <div class="form-group form-check">
+      <input type="checkbox" id="verified" name="verified" {{ 'checked' if resource.is_verified }}>
+      <label for="verified" class="mb-0">Mark as DIT Verified</label>
+    </div>
+
+    <div class="flex gap-3 mt-6">
+      <button type="submit" class="btn btn-primary btn-lg">{{ icons.icon('check-circle', size=17) }} Save Changes</button>
+      <a href="{{ url_for('lecturer.manage_resources') }}" class="btn btn-ghost btn-lg">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

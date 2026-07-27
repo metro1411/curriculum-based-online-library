@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Upload Resource — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  {% include "partials/breadcrumb.html" %}
+  <div class="page-header">
+    <span class="page-header__eyebrow">Upload Wizard &middot; Step 5 of 6</span>
+    <h1>Select a module</h1>
+    <p>{{ programme.name }} &middot; {{ level.label }} &middot; {{ semester.label }}</p>
+  </div>
+
+  <div class="entity-grid">
+    {% for module in modules %}
+    <a class="entity-card" href="{{ url_for('lecturer.upload_form', module_id=module.id) }}">
+      <div class="entity-card__top">
+        <span class="entity-card__icon">{{ icons.icon('book-open', size=20) }}</span>
+        <span class="badge badge-neutral">{{ resource_counts.get(module.id, 0) }} existing</span>
+      </div>
+      <h3>{{ module.name }}</h3>
+      <p>{{ module.description }}</p>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

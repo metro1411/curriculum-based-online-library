@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}{{ level.label }} — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  {% include "partials/breadcrumb.html" %}
+  <div class="page-header">
+    <span class="page-header__eyebrow">{{ programme.name }} &middot; {{ level.label }}</span>
+    <h1>Choose your semester</h1>
+    <p>Select the semester you're currently studying.</p>
+  </div>
+
+  <div class="entity-grid">
+    {% for sem in semesters %}
+    <a class="entity-card {{ '' if (sem.is_active and sem.modules) else 'entity-card--muted' }}" href="{{ url_for('student.modules', dept_slug=department.slug, prog_slug=programme.slug, level_number=level.level_number, semester_number=sem.semester_number) }}">
+      <div class="entity-card__top">
+        <span class="entity-card__icon">{{ icons.icon('folder', size=20) }}</span>
+        {% if not (sem.is_active and sem.modules) %}<span class="badge badge-coming-soon">Coming Soon</span>{% endif %}
+      </div>
+      <h3>{{ sem.label }}</h3>
+      <p>{{ sem.modules|length }} module{{ 's' if sem.modules|length != 1 else '' }} available</p>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

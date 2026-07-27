@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}DIT AI | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container ai-page fade-in">
+  <div class="ai-shell ai-shell--assistant" data-ai-root
+       data-ask-url="{{ url_for('ai.ask') }}"
+       data-regenerate-url="{{ url_for('ai.regenerate') }}"
+       data-feedback-url="{{ url_for('ai.feedback') }}"
+       data-rename-url="{{ url_for('ai.rename_conversation', conversation_id=0) }}"
+       data-base-url="{{ url_for('ai.assistant') }}"
+       data-conversation-id="{{ active_conversation.id if active_conversation else '' }}"
+       data-resource-id="{{ selected_resource.id if selected_resource else '' }}"
+       data-selected-mode="{{ selected_mode }}">
+
+    <aside class="ai-sidebar ai-sidebar--modern">
+      <a href="{{ url_for('ai.assistant') }}" class="btn btn-primary btn-block">{{ icons.icon('plus', size=16) }} New chat</a>
+      <label class="ai-chat-search"><span class="sr-only">Search conversations</span><input type="search" placeholder="Search chats" data-conversation-search></label>
+      <div class="ai-sidebar__label">Recent conversations</div>
+      <div class="ai-sidebar__list" data-conversation-list>
+        {% if not conversations %}
+        <p class="text-muted ai-sidebar__empty" data-conversation-empty>Your learning conversations will appear here.</p>
+        {% endif %}
+        {% for conv in conversations %}
+        <div class="conv-row" data-conversation-row data-conversation-title="{{ conv.title|lower }}">
+          <a class="conv-item {{ 'active' if active_conversation and active_conversation.id == conv.id }}" href="{{ url_for('ai.assistant', conversation_id=conv.id) }}"><span class="conv-item__title">{{ conv.title }}</span></a>
+          <button type="button" class="conv-item__rename" data-rename-conversation="{{ conv.id }}" data-title="{{ conv.title }}" aria-label="Rename conversation">{{ icons.icon('edit', size=13) }}</button>
+          <button type="button" class="conv-item__delete btn-icon btn-ghost" style="width:25px;height:25px;padding:2px;" onclick="document.getElementById('delete-conv-{{ conv.id }}').requestSubmit();" aria-label="Delete conversation">{{ icons.icon('trash', size=13) }}</button>
+        </div>
+        <form id="delete-conv-{{ conv.id }}" method="POST" action="{{ url_for('ai.delete_conversation', conversation_id=conv.id) }}" data-confirm="This will permanently delete this conversation." data-confirm-title="Delete conversation?" style="display:none;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
+        {% endfor %}
+      </div>
+      <div class="ai-sidebar__footer"><span class="status-dot {{ '' if ai_available else 'status-dot--muted' }}"></span> {{ 'AI connection configured' if ai_available else 'AI connection needs setup' }}</div>
+    </aside>
+
+    <section class="ai-main ai-main--modern">
+      <header class="ai-chat-header">
+        <div><span class="ai-chat-header__eyebrow">DIT AI Learning Assistant</span><h1 data-chat-title>{{ active_conversation.title if active_conversation else 'New learning conversation' }}</h1></div>
+        <div class="ai-chat-header__actions">
+          {% if active_conversation %}<button type="button" class="btn btn-ghost btn-sm" data-rename-conversation="{{ active_conversation.id }}" data-title="{{ active_conversation.title }}">{{ icons.icon('edit', size=14) }} Rename</button>{% endif %}
+          <span class="ai-trust-pill">{{ icons.icon('shield-check', size=13) }} Module-grounded</span>
+        </div>
+      </header>
+
+      <div class="ai-context-bar ai-context-bar--modern {{ 'is-disabled' if not ai_available }}" style="{{ 'pointer-events:none; opacity:0.55;' if not ai_available }}">
+        <div class="ai-context-field"><label for="module-select">Module context</label><select class="form-select" id="module-select" data-module-select {{ 'disabled' if not ai_available }}><option value="">General learning support</option>{% for m in modules %}<option value="{{ m.id }}" {{ 'selected' if selected_module and selected_module.id == m.id }}>{{ m.name }}</option>{% endfor %}</select></div>
+        <div class="ai-context-field"><label for="response-style">Response style</label><select class="form-select" id="response-style" data-response-style {{ 'disabled' if not ai_available }}><option value="guided" {{ 'selected' if preference.response_style == 'guided' }}>Guided, step by step</option><option value="simple" {{ 'selected' if preference.response_style == 'simple' }}>Simple and clear</option><option value="detailed" {{ 'selected' if preference.response_style == 'detailed' }}>Technical depth</option><option value="exam" {{ 'selected' if preference.response_style == 'exam' }}>Exam-focused</option></select></div>
+        {% if selected_resource %}<span class="resource-focus-banner">{{ icons.icon('file-text', size=14) }} Using <strong>{{ selected_resource.title }}</strong><a href="{{ url_for('ai.assistant', module_id=selected_module.id if selected_module else '') }}" aria-label="Clear resource focus">{{ icons.icon('x', size=13) }}</a></span>{% endif %}
+      </div>
+
+      <div class="mode-selector mode-selector--modern {{ 'is-disabled' if not ai_available }}" style="{{ 'pointer-events:none; opacity:0.55;' if not ai_available }}" aria-label="Learning action">
+        {% for key, label in modes.items() if key != 'ask_resource' or selected_resource %}<button type="button" class="mode-pill {{ 'active' if key == selected_mode }}" data-mode-pill="{{ key }}">{{ label }}</button>{% endfor %}
+      </div>
+
+      {% if ai_available %}
+      <div class="chat-window chat-window--modern" data-chat-window aria-live="polite">
+        {% if not chat_messages %}
+        <div class="ai-empty-state" data-ai-empty-state>
+          <span class="ai-empty-state__mark">{{ icons.icon('sparkles', size=27) }}</span><h2>How can I help you learn today?</h2><p>Select your module for curriculum-aware support, or start with one of these prompts.</p>
+          <div class="prompt-grid">
+            <button type="button" class="prompt-card" data-suggest="Explain negative feedback in control systems with a simple example."><strong>Explain a concept</strong><span>Build understanding from the basics</span></button>
+            <button type="button" class="prompt-card" data-suggest="Solve a control-system transfer function problem step by step."><strong>Solve step by step</strong><span>Show every method mark</span></button>
+            <button type="button" class="prompt-card" data-suggest="Create a short exam-style quiz on feedback control systems."><strong>Practice for an exam</strong><span>Test and strengthen recall</span></button>
+            <button type="button" class="prompt-card" data-suggest="Summarise the key revision points for this module."><strong>Make revision notes</strong><span>Focus on what matters most</span></button>
+            <button type="button" class="prompt-card" data-suggest="Create eight flashcards for the most important concepts in this module."><strong>Create flashcards</strong><span>Turn key ideas into active recall</span></button>
+            <button type="button" class="prompt-card" data-suggest="Make an exam-ready revision sheet with key equations, mistakes and a self-check."><strong>Revision sheet</strong><span>Prepare a focused final review</span></button>
+          </div>
+        </div>
+        {% endif %}
+        {% for msg in chat_messages %}
+          {% if msg.role == 'user' %}
+          <div class="chat-turn chat-turn--user"><div class="chat-avatar chat-avatar--user">{{ current_user.full_name[:1]|upper }}</div><div class="chat-bubble chat-bubble--user"><p class="mb-0">{{ msg.content }}</p></div></div>
+          {% else %}
+          <div class="chat-turn chat-turn--assistant" data-assistant-turn data-message-id="{{ msg.id }}"><div class="chat-avatar chat-avatar--assistant">{{ icons.icon('sparkles', size=16) }}</div><div class="chat-turn__body"><div class="chat-bubble chat-bubble--assistant">{{ msg.content_html|safe }}</div><div class="chat-message-actions"><button type="button" data-copy-answer title="Copy response">Copy</button><button type="button" data-regenerate title="Regenerate response">{{ icons.icon('refresh', size=13) }} Regenerate</button></div><div class="ai-feedback" data-ai-feedback data-message-id="{{ msg.id }}"><span>Was this useful?</span><button type="button" data-rating="5">Helpful</button><button type="button" data-rating="2">Needs improvement</button><button type="button" data-unclear="true">Report unclear</button></div>{% if msg.general_guidance %}<div class="general-guidance-note">No directly relevant approved resource was found. This response uses general academic guidance{% if msg.web_sources %} with supplementary web research{% endif %}.</div>{% endif %}{% if msg.sources %}<div class="chat-sources"><span>Lecturer sources used</span>{% for s in msg.sources %}<a class="source-pill" href="{{ url_for('student.resource_view', resource_id=s.id) }}" target="_blank" rel="noopener">{{ '✓ ' if s.verified }}{{ s.title }}</a>{% endfor %}</div>{% endif %}{% if msg.web_sources %}<div class="chat-sources chat-sources--web"><span>Supplementary web sources</span>{% for s in msg.web_sources %}<a class="source-pill" href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a>{% endfor %}</div>{% endif %}</div></div>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <div class="ai-followups" data-followups hidden><span>Continue learning</span><div data-followup-list></div></div>
+      <form class="chat-input-row chat-input-row--modern" data-chat-form>
+        <textarea class="form-textarea" data-chat-input rows="1" placeholder="Message DIT AI…" required></textarea>
+        <div class="chat-composer__footer"><span>Enter to send · Shift + Enter for a new line</span><button type="submit" class="btn btn-primary btn-icon" data-chat-send aria-label="Send message">{{ icons.icon('send', size=18) }}</button></div>
+      </form>
+      <p class="ai-disclosure">DIT AI uses the selected module and lecturer materials first. Review important academic work with your lecturer.</p>
+      {% else %}
+      <div class="card ai-disabled-panel"><span class="choice-card__icon" style="background: linear-gradient(155deg, var(--teal-600), var(--teal-800)); margin: 0 auto;">{{ icons.icon('sparkles', size=26) }}</span><h2>AI learning assistant</h2><p class="section-desc">Your guided, module-aware learning space.</p><p><strong>AI assistance will be available when the AI service is connected.</strong></p><p class="text-muted" style="font-size:0.85rem; max-width:480px; margin: 0 auto;">Add a <code>GEMINI_API_KEY</code> to the application environment and restart the app to activate chat.</p></div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% import "partials/icons.html" as icons %}
+
+{% macro resource_type_icon(resource_type) %}
+{%- if resource_type == 'video' -%}play-circle
+{%- elif resource_type == 'presentation' -%}grid
+{%- elif resource_type == 'book' -%}book-open
+{%- elif resource_type in ('past_paper', 'assignment') -%}file-text
+{%- elif resource_type == 'practical_guide' -%}layers
+{%- else -%}file-text
+{%- endif -%}
+{% endmacro %}
+
+{% macro resource_card(resource) %}
+<div class="card card-hover resource-card">
+  <div class="resource-card__top">
+    <span class="resource-card__icon">{{ icons.icon(resource_type_icon(resource.resource_type)|trim, size=20) }}</span>
+    {% if resource.is_verified %}
+      <span class="badge badge-verified">{{ icons.icon('shield-check', size=12) }} DIT Verified</span>
+    {% else %}
+      <span class="badge badge-pending">{{ icons.icon('clock', size=12) }} Pending Review</span>
+    {% endif %}
+  </div>
+  <h4><a href="{{ url_for('student.resource_view', resource_id=resource.id) }}">{{ resource.title }}</a></h4>
+  {% if resource.description %}<p class="resource-card__desc">{{ resource.description }}</p>{% endif %}
+  <div class="resource-card__meta">
+    <span>{{ resource.type_label }}</span>
+    <span>&middot;</span>
+    <span>{{ resource.uploaded_by.full_name }}</span>
+    <span>&middot;</span>
+    <span>{{ resource.created_at.strftime('%d %b %Y') }}</span>
+    {% if resource.file_size_bytes %}<span>&middot;</span><span>{{ resource.file_size_bytes|filesize }}</span>{% endif %}
+  </div>
+  <div class="resource-card__actions">
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('student.resource_view', resource_id=resource.id) }}">{{ icons.icon('eye', size=14) }} View</a>
+    {% if resource.stored_filename %}
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('student.resource_download', resource_id=resource.id) }}">{{ icons.icon('download', size=14) }} Download</a>
+    {% else %}
+    <a class="btn btn-secondary btn-sm" href="{{ resource.external_url }}" target="_blank" rel="noopener">{{ icons.icon('external-link', size=14) }} Open Link</a>
+    {% endif %}
+    <a class="btn btn-primary btn-sm" href="{{ url_for('ai.assistant', resource_id=resource.id) }}">{{ icons.icon('sparkles', size=14) }} AI Help</a>
+  </div>
+</div>
+{% endmacro %}

@@ -1,0 +1,13 @@
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="toast-container">
+  {% for category, message in messages %}
+  {% set toast_type = {'error': 'error', 'success': 'success', 'warning': 'warning', 'info': 'info', 'message': 'info'}.get(category, 'info') %}
+  <div class="toast toast-{{ toast_type }}" role="status">
+    <span>{{ message }}</span>
+    <button type="button" class="toast__close" aria-label="Dismiss">&#10005;</button>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endwith %}

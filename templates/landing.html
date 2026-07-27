@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}{{ app_name }} | Academic learning platform{% endblock %}
+
+{% block content %}
+<section class="hero hero--institutional">
+  <div class="hero__bg"></div>
+  <div class="container">
+    <span class="eyebrow">{{ icons.icon('award', size=15) }} DIT learning environment</span>
+    <h1 class="fade-in">Learn with clarity. Progress with purpose.</h1>
+    <p class="hero__tagline fade-in">{{ app_tagline }}</p>
+    <p class="hero__desc fade-in">A focused digital learning space connecting module resources, AI-guided study support and learning analytics for students and lecturers.</p>
+    <div class="hero-actions hero-actions--center slide-up">
+      <a href="{{ url_for('auth.student_login') }}" class="btn btn-primary btn-lg">{{ icons.icon('users', size=18) }} Student portal</a>
+      <a href="{{ url_for('auth.lecturer_login') }}" class="btn btn-secondary btn-lg">{{ icons.icon('bar-chart', size=18) }} Lecturer portal</a>
+    </div>
+    <div class="hero-metrics" aria-label="Platform capabilities">
+      <span><strong>Curriculum-first</strong> learning paths</span>
+      <span><strong>Context-aware</strong> AI support</span>
+      <span><strong>Actionable</strong> study insights</span>
+    </div>
+  </div>
+</section>
+
+<section class="section section--surface">
+  <div class="container">
+    <div class="section-heading-row">
+      <div><span class="section-kicker">One connected experience</span><h2 class="section-title">From learning materials to meaningful next steps</h2></div>
+      <p class="section-desc">Every feature is organised around the module context a student or lecturer has selected.</p>
+    </div>
+    <div class="feature-grid feature-grid--three">
+      <article class="card feature-card"><span class="feature-card__icon">{{ icons.icon('layers') }}</span><h3>Structured learning</h3><p>Navigate a clear academic path from department through semester and module, with resources and outcomes in one place.</p></article>
+      <article class="card feature-card"><span class="feature-card__icon">{{ icons.icon('sparkles') }}</span><h3>Guided AI assistance</h3><p>Ask in your module context, choose the depth you need and receive clear, worked explanations grounded in lecturer materials.</p></article>
+      <article class="card feature-card"><span class="feature-card__icon">{{ icons.icon('bar-chart') }}</span><h3>Learning intelligence</h3><p>See study consistency, topic progress and recommended actions without turning student learning into a wall of numbers.</p></article>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

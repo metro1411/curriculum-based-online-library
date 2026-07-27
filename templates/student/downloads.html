@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% import "partials/resource_card.html" as rc %}
+{% block title %}Downloaded Resources — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header">
+    <span class="page-header__eyebrow">My Library</span>
+    <h1>Downloaded Resources</h1>
+    <p>Resources you've downloaded, saved here so you can find them again anytime.</p>
+  </div>
+
+  {% if not downloads %}
+  <div class="card empty-state">
+    <span class="empty-state__icon">{{ icons.icon('download', size=32) }}</span>
+    <h3>No downloads yet</h3>
+    <p>Once you download a resource from the archive, it will appear here.</p>
+    <a href="{{ url_for('student.departments') }}" class="btn btn-primary">Explore Academic Archive</a>
+  </div>
+  {% else %}
+  <div class="resource-grid">
+    {% for d in downloads %}
+      {{ rc.resource_card(d.resource) }}
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
