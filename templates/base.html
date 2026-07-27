@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block extra_head %}{% endblock %}
 </head>
-<body data-theme="light">
+<body data-theme="light" {{ 'data-data-saver=true' if data_saver else '' }}>
   <a class="skip-link" href="#main-content">Skip to main content</a>
   <div class="page-shell">
     {% include "partials/navbar.html" %}

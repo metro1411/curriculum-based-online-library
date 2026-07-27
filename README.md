@@ -2,11 +2,16 @@
 
 Smart DIT Learning Hub is a role-based learning workspace for organising module resources, supporting independent study, and giving lecturers a clear view of learning engagement.
 
+## Start here
+
+After extracting the release ZIP, double-click `START_HERE.bat`. It provides the correct order: configure `.env`, run the automated test, start locally, then open the Render guide. See `START_HERE.md` for the short explanation.
+
 ## What it includes
 
 - Student curriculum navigation, verified learning resources, quick search, saved items, download history, module learning paths, and visual personal learning insights.
 - A context-aware DIT AI assistant with conversation history, structured explanations, source references, mathematical notation, worked solutions, revision sheets, flashcards, quizzes, code blocks, follow-up prompts, and feedback controls.
 - Lecturer workspaces for publishing resources, managing topics and announcements, and reviewing class engagement, popular resources, topic coverage, study time, and AI support needs.
+- Private multi-user registration with ID-based Student (`2403...`), Lecturer (`1403...`) and protected Head of Department (`5000...`) roles; HOD lecturer approvals, module assignments, personal goals, streaks, achievements and Data Saver mode.
 - Local SQLite development storage plus managed-Postgres and private-cloud-storage support for public deployment; secure password hashing, CSRF protection, file validation, and scoped access control.
 
 ## Run locally
@@ -16,6 +21,8 @@ Smart DIT Learning Hub is a role-based learning workspace for organising module 
 3. Optionally set `GEMINI_API_KEY` to enable generated AI answers. The assistant uses lecturer resources first; when a module has no confident match, it can use Google Search for supplementary academic context and labels those links in the answer. Google Search grounding requires a Gemini project/key entitled for that paid capability; ordinary Gemini chat continues to work without it.
 4. Start the application with `python app.py`.
 5. Open `http://127.0.0.1:5055`.
+
+For the complete public deployment and upgrade checklist, see [DEPLOY_RENDER.md](DEPLOY_RENDER.md).
 
 The default address is `127.0.0.1:5055`. If it is unavailable, choose another local port without changing source code, for example: `PORT=5060 python app.py` (PowerShell: `$env:PORT=5060; python app.py`).
 
@@ -48,18 +55,19 @@ The included `render.yaml` makes this project ready to deploy as a public Flask 
    | `SUPABASE_URL` | Supabase Project URL |
    | `SUPABASE_SERVICE_ROLE_KEY` | Supabase server-side Secret Key / legacy `service_role` key |
    | `INITIAL_STUDENT_PASSWORD` | A new strong password of at least 12 characters |
-   | `INITIAL_LECTURER_PASSWORD` | A different strong password of at least 12 characters |
+| `INITIAL_LECTURER_PASSWORD` | A different strong password of at least 12 characters |
+| `HOD_ACTIVATION_CODE` | A private random value of at least 16 characters, used to activate the first HOD account |
 | `GEMINI_API_KEY` | Optional, but required for generated Gemini answers |
 | `GEMINI_ENABLE_WEB_GROUNDING` | Leave as `1` to permit supplementary Google Search only when no confident lecturer-resource match exists; set to `0` to keep AI answers archive-only. Search grounding needs an eligible Gemini paid-tier/auth key. |
 
 6. Deploy. Render provides a public `https://...onrender.com` address with HTTPS; the `/health` route is used to check that the service and database are available.
-7. Sign in with `student@dit.ac.tz` or `lecturer@dit.ac.tz` and the strong initial passwords you chose. Do not use the local sample passwords on a public deployment.
+7. Open **Create account** to register real student, lecturer, and HOD accounts. The protected HOD account needs `HOD_ACTIVATION_CODE`; lecturer requests need HOD approval before they can sign in.
 
 Free services are ideal for a competition demonstration and small pilot. Render spins an idle free web service down after 15 minutes, so the first visit after idle can take about a minute. Supabase Free includes 500 MB of database space and 1 GB of storage, but can pause a low-activity project after a week. Keep a backup of the database and resource bucket before moving to a wider institutional rollout.
 
 ## Configuration
 
-Optionally create a local `.env` file and set values appropriate to your environment. Keep `SECRET_KEY`, `GEMINI_API_KEY`, `DATABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` out of version control. `HOST` and `PORT` can be set for local hosting. `GEMINI_MODEL` defaults to `gemini-3.5-flash`; `GEMINI_MAX_OUTPUT_TOKENS` defaults to `4096`. The service continues to provide source-grounded guidance when an AI provider is not configured.
+Optionally create a local `.env` file and set values appropriate to your environment. Keep `SECRET_KEY`, `HOD_ACTIVATION_CODE`, `GEMINI_API_KEY`, `DATABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` out of version control. `HOST` and `PORT` can be set for local hosting. `GEMINI_MODEL` defaults to `gemini-3.5-flash`; `GEMINI_MAX_OUTPUT_TOKENS` defaults to `4096`. The service continues to provide source-grounded guidance when an AI provider is not configured.
 
 ## Project structure
 

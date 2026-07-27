@@ -11,8 +11,8 @@
     <p class="hero__tagline fade-in">{{ app_tagline }}</p>
     <p class="hero__desc fade-in">A focused digital learning space connecting module resources, AI-guided study support and learning analytics for students and lecturers.</p>
     <div class="hero-actions hero-actions--center slide-up">
-      <a href="{{ url_for('auth.student_login') }}" class="btn btn-primary btn-lg">{{ icons.icon('users', size=18) }} Student portal</a>
-      <a href="{{ url_for('auth.lecturer_login') }}" class="btn btn-secondary btn-lg">{{ icons.icon('bar-chart', size=18) }} Lecturer portal</a>
+      <a href="{{ url_for('auth.register') }}" class="btn btn-primary btn-lg">{{ icons.icon('users', size=18) }} Create account</a>
+      <a href="{{ url_for('auth.login') }}" class="btn btn-secondary btn-lg">{{ icons.icon('bar-chart', size=18) }} Sign in</a>
     </div>
     <div class="hero-metrics" aria-label="Platform capabilities">
       <span><strong>Curriculum-first</strong> learning paths</span>

@@ -18,10 +18,13 @@ from markupsafe import escape
 import ai_engine
 from extensions import db
 from models import (
-    Department, Programme, Semester, Module, Resource, ResourceView, Download,
+    Department, Programme, NtaLevel, Semester, Module, Resource, ResourceView, Download,
     RESOURCE_TYPES, Topic, Announcement, StudentPreference, SavedItem, LearningEvent,
 )
-from learning import record_learning_event, student_insights
+from learning import (
+    personal_recommendations, record_learning_event, student_insights,
+    student_profile_summary,
+)
 from curriculum import (
     get_department_or_404, get_programme_or_404, get_level_or_404, get_semester_or_404,
     get_module_or_404, build_breadcrumbs, coming_soon_response,
@@ -46,9 +49,33 @@ def _student_resource_or_404(resource_id):
     URL, download link, bookmark request, or preview route from bypassing the
     verification workflow.
     """
-    return Resource.query.filter_by(
+    resource = Resource.query.filter_by(
         id=resource_id, verification_status="verified"
     ).first_or_404()
+    if not _student_can_access_module(resource.module):
+        abort(403)
+    return resource
+
+
+def _student_can_access_module(module):
+    """Keep exploration inside the learner's Electrical Engineering programme."""
+    if not module:
+        return False
+    programme = module.semester.nta_level.programme
+    if current_user.programme_id:
+        return programme.id == current_user.programme_id
+    return bool(current_user.department_id and programme.department_id == current_user.department_id)
+
+
+def _own_department_or_403(department):
+    if current_user.department_id and department.id != current_user.department_id:
+        abort(403)
+
+
+def _own_programme_or_403(programme):
+    _own_department_or_403(programme.department)
+    if current_user.programme_id and programme.id != current_user.programme_id:
+        abort(403)
 
 
 # ---------------------------------------------------------------------------
@@ -90,21 +117,10 @@ def dashboard():
             break
 
     already_seen = seen_ids | seen_dl
-    recommended = []
-    if current_user.semester_id:
-        semester = db.session.get(Semester, current_user.semester_id)
-        if semester:
-            for module in semester.modules:
-                for r in sorted(module.resources, key=lambda x: x.is_verified, reverse=True):
-                    if not r.is_verified:
-                        continue
-                    if r.id in already_seen:
-                        continue
-                    recommended.append(r)
-                    if len(recommended) >= 3:
-                        break
-                if len(recommended) >= 3:
-                    break
+    recommended = [
+        item for item in personal_recommendations(current_user)
+        if item["resource"].id not in already_seen
+    ][:3]
 
     saved_resources = [
         item.resource for item in SavedItem.query.filter_by(student_id=current_user.id)
@@ -135,6 +151,7 @@ def dashboard():
         recommended=recommended,
         saved_resources=saved_resources,
         dashboard_metrics=dashboard_metrics,
+        profile_summary=student_profile_summary(current_user),
     )
 
 
@@ -194,13 +211,13 @@ def search():
     modules = []
     if query:
         like = f"%{query}%"
-        resource_query = Resource.query.join(Module).filter(
+        resource_query = Resource.query.join(Module).join(Semester).join(NtaLevel).filter(
             Resource.verification_status == "verified"
         )
-        module_query = Module.query
-        if current_user.semester_id:
-            resource_query = resource_query.filter(Module.semester_id == current_user.semester_id)
-            module_query = module_query.filter(Module.semester_id == current_user.semester_id)
+        module_query = Module.query.join(Semester).join(NtaLevel)
+        if current_user.programme_id:
+            resource_query = resource_query.filter(NtaLevel.programme_id == current_user.programme_id)
+            module_query = module_query.filter(NtaLevel.programme_id == current_user.programme_id)
         resources = resource_query.filter(db.or_(
             Resource.title.ilike(like), Resource.description.ilike(like),
         )).order_by(Resource.created_at.desc()).limit(24).all()
@@ -228,13 +245,14 @@ def study_topic(topic_id):
 
 @student_bp.route("/archive")
 def departments():
-    depts = Department.query.order_by(Department.display_order).all()
+    depts = Department.query.filter_by(id=current_user.department_id).all() if current_user.department_id else []
     return render_template("student/departments.html", departments=depts)
 
 
 @student_bp.route("/archive/<dept_slug>")
 def programmes(dept_slug):
     department = get_department_or_404(dept_slug)
+    _own_department_or_403(department)
     if not department.is_active:
         return coming_soon_response(
             "student", department.name, "department", url_for("student.departments")
@@ -253,6 +271,7 @@ def programmes(dept_slug):
 def levels(dept_slug, prog_slug):
     department = get_department_or_404(dept_slug)
     programme = get_programme_or_404(department, prog_slug)
+    _own_programme_or_403(programme)
     if not department.is_active:
         return coming_soon_response(
             "student", department.name, "department", url_for("student.departments")
@@ -274,6 +293,7 @@ def levels(dept_slug, prog_slug):
 def semesters(dept_slug, prog_slug, level_number):
     department = get_department_or_404(dept_slug)
     programme = get_programme_or_404(department, prog_slug)
+    _own_programme_or_403(programme)
     level = get_level_or_404(programme, level_number)
     if not (department.is_active and programme.is_active):
         return coming_soon_response(
@@ -300,6 +320,7 @@ def semesters(dept_slug, prog_slug, level_number):
 def modules(dept_slug, prog_slug, level_number, semester_number):
     department = get_department_or_404(dept_slug)
     programme = get_programme_or_404(department, prog_slug)
+    _own_programme_or_403(programme)
     level = get_level_or_404(programme, level_number)
     semester = get_semester_or_404(level, semester_number)
 
@@ -337,6 +358,8 @@ def modules(dept_slug, prog_slug, level_number, semester_number):
 @student_bp.route("/module/<int:module_id>")
 def module_resources(module_id):
     module = get_module_or_404(module_id)
+    if not _student_can_access_module(module):
+        abort(403)
     semester = module.semester
     level = semester.nta_level
     programme = level.programme

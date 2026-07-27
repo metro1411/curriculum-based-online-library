@@ -39,10 +39,16 @@ class User(UserMixin, db.Model):
     full_name = db.Column(db.String(150), nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False, index=True)
     username = db.Column(db.String(80), unique=True, nullable=True, index=True)
+    # Registration/staff identifiers are the primary human-facing identities.
+    # They remain nullable only so existing deployments can migrate safely.
+    registration_number = db.Column(db.String(10), unique=True, nullable=True, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
 
-    # 'student' or 'lecturer'
+    # 'student', 'lecturer' or 'department_head'
     role = db.Column(db.String(20), nullable=False, default="student", index=True)
+    # Pending lecturer accounts cannot sign in or publish until the department
+    # head reviews the request. Existing accounts are treated as active.
+    account_status = db.Column(db.String(20), nullable=False, default="active", index=True)
 
     # Student-only academic placement (nullable so lecturers don't need it)
     department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=True)
@@ -51,6 +57,8 @@ class User(UserMixin, db.Model):
     semester_id = db.Column(db.Integer, db.ForeignKey("semesters.id"), nullable=True)
 
     is_active_account = db.Column(db.Boolean, default=True, nullable=False)
+    profile_photo_filename = db.Column(db.String(300), nullable=True)
+    profile_photo_mime_type = db.Column(db.String(120), nullable=True)
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
 
     department = db.relationship("Department", foreign_keys=[department_id])
@@ -75,6 +83,14 @@ class User(UserMixin, db.Model):
     @property
     def is_lecturer(self):
         return self.role == "lecturer"
+
+    @property
+    def is_department_head(self):
+        return self.role == "department_head"
+
+    @property
+    def is_pending(self):
+        return self.account_status == "pending"
 
     # Flask-Login uses get_id(); UserMixin already provides this from .id
     def __repr__(self):
@@ -443,6 +459,8 @@ class StudentPreference(db.Model):
     student_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True)
     response_style = db.Column(db.String(30), nullable=False, default="guided")
     weekly_goal_minutes = db.Column(db.Integer, nullable=False, default=120)
+    learning_goal = db.Column(db.String(220), nullable=True)
+    data_saver = db.Column(db.Boolean, nullable=False, default=False)
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     student = db.relationship("User", foreign_keys=[student_id])
@@ -480,3 +498,27 @@ class SavedItem(db.Model):
     __table_args__ = (
         db.UniqueConstraint("student_id", "resource_id", name="uq_saved_student_resource"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Department-head approval workflow
+# ---------------------------------------------------------------------------
+
+class LecturerRequest(db.Model):
+    """A lecturer registration awaiting review by the Electrical HOD."""
+
+    __tablename__ = "lecturer_requests"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=False, index=True)
+    teaching_interest = db.Column(db.String(300), nullable=True)
+    note = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+    reviewed_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+
+    user = db.relationship("User", foreign_keys=[user_id])
+    department = db.relationship("Department", foreign_keys=[department_id])
+    reviewed_by = db.relationship("User", foreign_keys=[reviewed_by_id])

@@ -2,6 +2,14 @@
 setlocal
 cd /d "%~dp0"
 
+if not exist ".env" (
+  echo.
+  echo Creating your local .env configuration file...
+  copy /Y ".env.example" ".env" >nul
+  echo Configure the optional Gemini key and required HOD activation code now.
+  call configure_local.bat
+)
+
 where py >nul 2>nul
 if errorlevel 1 (
   echo Python 3.12 or later is required. Install it from https://www.python.org/downloads/
@@ -19,7 +27,7 @@ if errorlevel 1 goto :error
 
 echo.
 echo Smart DIT Learning Hub is starting at http://127.0.0.1:5055
-echo Press Ctrl+C to stop the server.
+echo Use Ctrl+C in this window to stop the website.
 call .venv\Scripts\python.exe app.py
 exit /b %errorlevel%
 

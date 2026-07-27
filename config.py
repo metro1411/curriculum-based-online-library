@@ -124,6 +124,11 @@ class Config:
     INITIAL_STUDENT_PASSWORD = os.environ.get("INITIAL_STUDENT_PASSWORD", "Student@123")
     INITIAL_LECTURER_PASSWORD = os.environ.get("INITIAL_LECTURER_PASSWORD", "Lecturer@123")
 
+    # A one-time protected activation code is required before the first
+    # department-head account can be created. Keep it only in Render's
+    # environment variables, never in GitHub or a public form.
+    HOD_ACTIVATION_CODE = os.environ.get("HOD_ACTIVATION_CODE", "").strip()
+
     APP_NAME = "Smart DIT Learning Hub"
     APP_TAGLINE = "Learning support, curriculum resources and actionable academic insights."
     HOST = os.environ.get("HOST", "127.0.0.1").strip() or "127.0.0.1"

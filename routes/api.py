@@ -19,12 +19,18 @@ api_bp = Blueprint("api", __name__, url_prefix="/api/v1")
 def _visible_module_query():
     """Scope module data to the signed-in user's learning or teaching space."""
     if current_user.is_student:
-        if not current_user.semester_id:
+        if not current_user.programme_id:
             return Module.query.filter(Module.id == -1)
-        return Module.query.filter_by(semester_id=current_user.semester_id)
+        return Module.query.join(Semester).join(NtaLevel).filter(
+            NtaLevel.programme_id == current_user.programme_id
+        )
     if current_user.is_lecturer:
         return Module.query.join(LecturerAssignment).filter(
             LecturerAssignment.lecturer_id == current_user.id
+        )
+    if current_user.is_department_head:
+        return Module.query.join(Semester).join(NtaLevel).join(Programme).filter(
+            Programme.department_id == current_user.department_id
         )
     abort(403)
 
@@ -32,15 +38,19 @@ def _visible_module_query():
 def _visible_resource_query():
     """Scope resources and keep unverified lecturer uploads private."""
     if current_user.is_student:
-        if not current_user.semester_id:
+        if not current_user.programme_id:
             return Resource.query.filter(Resource.id == -1)
-        return Resource.query.join(Module).filter(
-            Module.semester_id == current_user.semester_id,
+        return Resource.query.join(Module).join(Semester).join(NtaLevel).filter(
+            NtaLevel.programme_id == current_user.programme_id,
             Resource.verification_status == "verified",
         )
     if current_user.is_lecturer:
         return Resource.query.join(LecturerAssignment).filter(
             LecturerAssignment.lecturer_id == current_user.id
+        )
+    if current_user.is_department_head:
+        return Resource.query.join(Module).join(Semester).join(NtaLevel).join(Programme).filter(
+            Programme.department_id == current_user.department_id
         )
     abort(403)
 
@@ -50,7 +60,12 @@ def _visible_resource_query():
 def curriculum():
     """Full nested curriculum tree, active flags included."""
     payload = []
-    for dept in Department.query.order_by(Department.display_order).all():
+    departments = Department.query.order_by(Department.display_order)
+    if current_user.is_student and current_user.department_id:
+        departments = departments.filter(Department.id == current_user.department_id)
+    elif current_user.is_department_head and current_user.department_id:
+        departments = departments.filter(Department.id == current_user.department_id)
+    for dept in departments.all():
         dept_json = {
             "id": dept.id, "name": dept.name, "slug": dept.slug, "is_active": dept.is_active,
             "programmes": [],
@@ -83,6 +98,10 @@ def curriculum():
 def programmes():
     department_id = request.args.get("department_id", type=int)
     query = Programme.query
+    if current_user.is_student and current_user.programme_id:
+        query = query.filter(Programme.id == current_user.programme_id)
+    elif current_user.is_department_head and current_user.department_id:
+        query = query.filter(Programme.department_id == current_user.department_id)
     if department_id:
         query = query.filter_by(department_id=department_id)
     return jsonify(programmes=[
@@ -167,8 +186,8 @@ def ai_ask():
     module = db.session.get(Module, module_id) if module_id else None
     if module_id and module is None:
         return jsonify(ok=False, error="The requested module was not found."), 404
-    if module and module.semester_id != current_user.semester_id:
-        return jsonify(ok=False, error="Choose a module from your current academic semester."), 403
+    if module and (not current_user.programme_id or module.semester.nta_level.programme_id != current_user.programme_id):
+        return jsonify(ok=False, error="Choose a module from your own programme."), 403
     result = ai_engine.ask(mode=mode, question=question, module=module, student=current_user)
 
     if not result["ok"]:

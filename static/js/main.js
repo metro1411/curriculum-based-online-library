@@ -31,11 +31,17 @@
     var toggle = document.querySelector("[data-mobile-toggle]");
     var panel = document.querySelector("[data-mobile-panel]");
     if (!toggle || !panel) return;
+    function setPanelState(isOpen) {
+      panel.classList.toggle("open", isOpen);
+      panel.setAttribute("aria-hidden", isOpen ? "false" : "true");
+      if (isOpen) panel.removeAttribute("inert");
+      else panel.setAttribute("inert", "");
+      toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    }
     toggle.addEventListener("click", function () {
-      panel.classList.toggle("open");
-      toggle.setAttribute("aria-expanded", panel.classList.contains("open") ? "true" : "false");
+      setPanelState(!panel.classList.contains("open"));
     });
-    panel.querySelectorAll("a").forEach(function (link) { link.addEventListener("click", function () { panel.classList.remove("open"); }); });
+    panel.querySelectorAll("a").forEach(function (link) { link.addEventListener("click", function () { setPanelState(false); }); });
   }
 
   function initToasts() {

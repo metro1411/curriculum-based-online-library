@@ -31,13 +31,22 @@ def require_student_role():
 
 
 def _active_modules():
+    if current_user.programme_id:
+        modules = (Module.query.join(Semester).filter(
+            Semester.nta_level.has(programme_id=current_user.programme_id)
+        ).order_by(Module.display_order).all())
+        return modules
     active_semester = Semester.query.filter_by(is_active=True).first()
     return sorted(active_semester.modules, key=lambda m: m.display_order) if active_semester else []
 
 
 def _student_can_use_module(module):
-    """Students can only attach chat context from their own semester."""
-    return bool(module and current_user.semester_id and module.semester_id == current_user.semester_id)
+    """AI context stays inside the student's Electrical Engineering programme."""
+    if not module:
+        return False
+    if current_user.programme_id:
+        return module.semester.nta_level.programme_id == current_user.programme_id
+    return bool(current_user.semester_id and module.semester_id == current_user.semester_id)
 
 
 def _sources_payload(sources):

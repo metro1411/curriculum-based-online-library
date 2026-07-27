@@ -24,6 +24,12 @@
     <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('bookmark', size=18) }}</span><div><strong>{{ dashboard_metrics.saved }}</strong><span>Saved for review</span></div></article>
     <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('download', size=18) }}</span><div><strong>{{ dashboard_metrics.downloads }}</strong><span>Downloads</span></div></article>
     <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('sparkles', size=18) }}</span><div><strong>{{ dashboard_metrics.ai_questions }}</strong><span>AI questions</span></div></article>
+    <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('award', size=18) }}</span><div><strong>{{ profile_summary.current_streak }}</strong><span>Day learning streak</span></div></article>
+  </section>
+
+  <section class="dashboard-grid dashboard-grid--priority dashboard-grid--streak">
+    <article class="card card-pad streak-card"><div><span class="section-kicker">Personal momentum</span><h2>{{ profile_summary.current_streak }} day streak</h2><p>Your longest learning rhythm is {{ profile_summary.longest_streak }} day{{ '' if profile_summary.longest_streak == 1 else 's' }}. Small consistent sessions count.</p></div><a class="btn btn-secondary btn-sm" href="{{ url_for('profile.settings') }}">View goals & profile</a></article>
+    <article class="card card-pad achievement-card"><span class="section-kicker">Personal achievements</span>{% if profile_summary.achievements %}<div class="achievement-list">{% for achievement in profile_summary.achievements[:3] %}<div><strong>{{ achievement.title }}</strong><small>{{ achievement.detail }}</small></div>{% endfor %}</div>{% else %}<p>Begin studying to unlock your first private learning achievement.</p>{% endif %}</article>
   </section>
 
   <section class="dashboard-grid dashboard-grid--priority">
@@ -63,8 +69,8 @@
     <article class="card card-pad">
       <div class="section-header"><div><span class="section-kicker">Recommended next</span><h2>{{ icons.icon('sparkles', size=18) }} Continue building</h2></div></div>
       {% if recommended %}
-        {% for resource in recommended %}
-        <a class="mini-resource" href="{{ url_for('student.resource_view', resource_id=resource.id) }}"><span class="mini-resource__icon">{{ icons.icon('shield-check', size=16) }}</span><div><div class="mini-resource__title">{{ resource.title }}</div><div class="mini-resource__meta">{{ resource.module.name }} · {{ resource.type_label }}</div></div></a>
+        {% for item in recommended %}
+        <a class="mini-resource" href="{{ url_for('student.resource_view', resource_id=item.resource.id) }}"><span class="mini-resource__icon">{{ icons.icon('shield-check', size=16) }}</span><div><div class="mini-resource__title">{{ item.resource.title }}</div><div class="mini-resource__meta">{{ item.module.name }} · {{ item.reason }}</div></div></a>
         {% endfor %}
       {% else %}
         <div class="empty-state empty-state--compact"><p>New verified materials and helpful next resources will appear here.</p></div>

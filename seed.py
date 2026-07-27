@@ -79,7 +79,9 @@ def _seed_users():
             full_name="Lecturer Account",
             email=LECTURER_EMAIL,
             username="lecturer.account",
+            registration_number="14030001",
             role="lecturer",
+            account_status="active",
         )
         lecturer.set_password(current_app.config["INITIAL_LECTURER_PASSWORD"])
         db.session.add(lecturer)
@@ -87,13 +89,17 @@ def _seed_users():
         lecturer.email = LECTURER_EMAIL
         lecturer.username = "lecturer.account"
         lecturer.full_name = lecturer.full_name or "Lecturer Account"
+        lecturer.registration_number = lecturer.registration_number or "14030001"
+        lecturer.account_status = lecturer.account_status or "active"
 
     if not student:
         student = User(
             full_name="Student Account",
             email=STUDENT_EMAIL,
             username="student.account",
+            registration_number="24030001",
             role="student",
+            account_status="active",
         )
         student.set_password(current_app.config["INITIAL_STUDENT_PASSWORD"])
         db.session.add(student)
@@ -101,6 +107,8 @@ def _seed_users():
         student.email = STUDENT_EMAIL
         student.username = "student.account"
         student.full_name = student.full_name or "Student Account"
+        student.registration_number = student.registration_number or "24030001"
+        student.account_status = student.account_status or "active"
 
     db.session.flush()
     return lecturer

@@ -35,6 +35,7 @@ os.environ["APP_ENV"] = "development"
 os.environ["GEMINI_API_KEY"] = ""
 os.environ["SUPABASE_URL"] = ""
 os.environ["SUPABASE_SERVICE_ROLE_KEY"] = ""
+os.environ["HOD_ACTIVATION_CODE"] = "isolated-test-hod-code"
 
 import config  # noqa: E402
 import ai_engine  # noqa: E402
@@ -48,7 +49,7 @@ config.RESOURCE_UPLOAD_DIR = TEST_UPLOADS.name
 import storage_backend  # noqa: E402
 from app import app  # noqa: E402
 from extensions import db  # noqa: E402
-from models import LecturerAssignment, Resource  # noqa: E402
+from models import LecturerAssignment, LecturerRequest, Resource, StudentPreference, User  # noqa: E402
 
 
 def expect(response, status, label):
@@ -196,8 +197,94 @@ def main():
         if db.session.get(Resource, uploaded_id) is not None:
             raise AssertionError("resource delete did not complete")
 
+        department = User.query.filter_by(email="student@dit.ac.tz").one().department
+        programme = User.query.filter_by(email="student@dit.ac.tz").one().programme
+        level = User.query.filter_by(email="student@dit.ac.tz").one().nta_level
+        semester = User.query.filter_by(email="student@dit.ac.tz").one().semester
+
+    # Registration turns the agreed 2403/1403/5000 ID rules into real account
+    # states. These requests use a disposable database only.
+    registration = app.test_client()
+    new_student = registration.post("/register", data={
+        "registration_number": "24030002", "full_name": "Student Two",
+        "email": "student.two@example.test", "password": "StudentTwo@123",
+        "password_confirm": "StudentTwo@123", "department_id": department.id,
+        "programme_id": programme.id, "nta_level_id": level.id, "semester_id": semester.id,
+    }, follow_redirects=False)
+    expect(new_student, 302, "student registration")
+    with app.app_context():
+        second_student = User.query.filter_by(registration_number="24030002").one()
+        if not second_student.is_student or not second_student.is_active_account:
+            raise AssertionError("student registration did not create an active student account")
+
+    new_student_client = app.test_client()
+    sign_in = new_student_client.post("/login", data={
+        "identifier": "24030002", "password": "StudentTwo@123"
+    }, follow_redirects=False)
+    expect(sign_in, 302, "ID-based student sign in")
+    expect(new_student_client.get("/profile"), 200, "student profile page")
+    profile_update = new_student_client.post("/profile", data={
+        "action": "profile", "full_name": "Student Two", "learning_goal": "Master control systems",
+        "weekly_goal_minutes": 180, "data_saver": "on",
+    }, follow_redirects=False)
+    expect(profile_update, 302, "student profile update")
+    with app.app_context():
+        pref = StudentPreference.query.filter_by(student_id=second_student.id).one()
+        if not pref.data_saver or pref.learning_goal != "Master control systems":
+            raise AssertionError("profile learning preferences did not persist")
+
+    lecturer_registration = registration.post("/register", data={
+        "registration_number": "14030002", "full_name": "Lecturer Two",
+        "email": "lecturer.two@example.test", "password": "LecturerTwo@123",
+        "password_confirm": "LecturerTwo@123", "department_id": department.id,
+        "teaching_interest": "Control Engineering",
+    }, follow_redirects=False)
+    expect(lecturer_registration, 302, "lecturer registration")
+    with app.app_context():
+        pending_lecturer = User.query.filter_by(registration_number="14030002").one()
+        if pending_lecturer.account_status != "pending" or pending_lecturer.is_active_account:
+            raise AssertionError("lecturer registration should remain pending")
+        if LecturerRequest.query.filter_by(user_id=pending_lecturer.id, status="pending").count() != 1:
+            raise AssertionError("lecturer request was not recorded")
+
+    hod_registration = registration.post("/register", data={
+        "registration_number": "50000001", "full_name": "Electrical Head",
+        "email": "hod@example.test", "password": "DepartmentHead@123",
+        "password_confirm": "DepartmentHead@123", "hod_activation_code": "isolated-test-hod-code",
+    }, follow_redirects=False)
+    expect(hod_registration, 302, "HOD activation")
+    hod = app.test_client()
+    expect(hod.post("/login", data={"identifier": "50000001", "password": "DepartmentHead@123"}, follow_redirects=False), 302, "HOD sign in")
+    expect(hod.get("/department"), 200, "HOD dashboard")
+    expect(hod.get("/department/lecturer-requests"), 200, "HOD lecturer request list")
+    approval = hod.post(f"/department/lecturer-requests/{pending_lecturer.id}/approve", data={
+        "module_ids": str(upload_module_id),
+    }, follow_redirects=False)
+    expect(approval, 302, "HOD lecturer approval")
+    with app.app_context():
+        approved = db.session.get(User, pending_lecturer.id)
+        if not approved.is_active_account or approved.account_status != "active":
+            raise AssertionError("HOD approval did not activate lecturer")
+        if not LecturerAssignment.query.filter_by(lecturer_id=approved.id, module_id=upload_module_id).first():
+            raise AssertionError("HOD approval did not assign selected module")
+
+    # Conversations remain scoped to the student who owns them.
+    generated_private = {**generated, "answer_text": "Private learner answer", "answer_html": "<p>Private learner answer</p>"}
+    with patch.object(ai_engine, "is_available", return_value=True), patch.object(ai_engine, "ask", return_value=generated_private):
+        private_answer = new_student_client.post("/ai/ask", json={
+            "message": "My private question", "module_id": upload_module_id, "mode": "explain",
+        })
+    expect(private_answer, 200, "private AI conversation")
+    private_conversation_id = private_answer.get_json()["conversation_id"]
+    first_student = app.test_client()
+    login(first_student, "student")
+    other_history = first_student.get(f"/ai?conversation_id={private_conversation_id}")
+    expect(other_history, 200, "other student AI workspace")
+    if b"Private learner answer" in other_history.data:
+        raise AssertionError("one student could read another student's AI conversation")
+
     TEST_UPLOADS.cleanup()
-    print("PASS: 29 core student, lecturer, AI, API, upload and health checks")
+    print("PASS: 40 core student, lecturer, HOD, profile, AI, API, upload and health checks")
 
 
 if __name__ == "__main__":
