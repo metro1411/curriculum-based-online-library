@@ -225,7 +225,7 @@ revision summaries.
 
 For engineering and mathematical questions, explain your method and reasoning clearly,
 step by step, showing your working. Use real Unicode mathematical notation directly, such as
-√, π, Σ, ∫, ×, ÷, ≤, ≥, ≈, →, ² and ³. Put important equations on their own line, use a⁄b
+√, π, ∑, ∫, ×, ÷, ≤, ≥, ≈, →, ² and ³. Put important equations on their own line, use a⁄b
 for readable fractions, define every symbol, keep units visible and always state a final
 answer. Never output LaTeX commands, dollar-sign math delimiters, or TeX markup. For programming
 questions, provide complete runnable code in a fenced block with the language specified, then
@@ -241,6 +241,11 @@ Concept overview, Clear explanation, Worked example, Key revision points, Practi
 Always distinguish facts drawn from lecturer materials from general supporting knowledge.
 Keep answers focused, complete and free of filler.
 
+When lecturer excerpts are used, add their supplied reference number after the supported claim,
+for example [1]. Never create a reference number that is absent from the retrieved context.
+Do not repeat a separate source list in the answer because the application displays the verified
+resource cards beneath it.
+
 When web research is available, make web-derived claims traceable: refer to them as \
 supplementary information and do not invent a link, title, or source. The application displays \
 the verified web sources returned by the research tool beneath your answer.
@@ -250,6 +255,7 @@ Use a clear teaching contract in every response:
 - Use meaningful headings, short paragraphs, and lists rather than dense blocks of text.
 - For calculations, define the symbols, show each substitution, keep units, then add a clearly
   labelled final answer and a brief reasonableness check.
+- Use **Final answer** for the result of a calculation and make it visually easy to find.
 - For revision, surface the few ideas worth remembering and one common misconception.
 - For flashcards, use `**Front:**` and `**Back:**` pairs so each card becomes an interactive
   study card in the interface.
@@ -417,7 +423,25 @@ _ALLOWED_TAGS = [
     "blockquote", "code", "pre", "a", "details", "summary", "table",
     "thead", "tbody", "tr", "th", "td", "hr", "span", "sup", "sub", "div",
 ]
-_ALLOWED_ATTRS = {"a": ["href", "title"], "span": ["class"], "div": ["class"]}
+_ALLOWED_ATTRS = {
+    "a": ["href", "title"],
+    "span": ["class"],
+    "div": ["class"],
+    "details": ["class"],
+    "summary": ["class"],
+}
+
+_MATH_REPLACEMENTS = {
+    r"\cdot": "×", r"\times": "×", r"\div": "÷", r"\pm": "±",
+    r"\leq": "≤", r"\le": "≤", r"\geq": "≥", r"\ge": "≥",
+    r"\neq": "≠", r"\approx": "≈", r"\lt": "<", r"\gt": ">",
+    r"\infty": "∞", r"\theta": "θ", r"\omega": "ω", r"\alpha": "α",
+    r"\beta": "β", r"\gamma": "γ", r"\delta": "δ", r"\lambda": "λ",
+    r"\mu": "μ", r"\pi": "π", r"\phi": "φ", r"\sigma": "σ",
+    r"\Delta": "Δ", r"\Sigma": "Σ", r"\sum": "∑", r"\int": "∫",
+    r"\rightarrow": "→", r"\to": "→", r"\Rightarrow": "⇒",
+    r"\degree": "°",
+}
 
 
 def _math_html(expression, block=False):
@@ -460,16 +484,7 @@ def _math_html(expression, block=False):
         flags=re.S,
     )
     value = html.escape(raw_value)
-    replacements = {
-        r"\cdot": "×", r"\times": "×", r"\div": "÷", r"\pm": "±",
-        r"\leq": "≤", r"\geq": "≥", r"\neq": "≠", r"\approx": "≈",
-        r"\infty": "∞", r"\theta": "θ", r"\omega": "ω", r"\alpha": "α",
-        r"\beta": "β", r"\gamma": "γ", r"\delta": "δ", r"\lambda": "λ",
-        r"\mu": "μ", r"\pi": "π", r"\phi": "φ", r"\sigma": "σ",
-        r"\Delta": "Δ", r"\Sigma": "Σ", r"\sum": "∑", r"\int": "∫",
-        r"\rightarrow": "→", r"\to": "→", r"\Rightarrow": "⇒",
-    }
-    for source, target in replacements.items():
+    for source, target in _MATH_REPLACEMENTS.items():
         value = value.replace(source, target)
 
     # Resolve simple fractions and square roots repeatedly so common nested
@@ -568,6 +583,8 @@ def _replace_math(text):
             lambda m: _math_html(m.group(0)),
             section,
         )
+        for source, target in _MATH_REPLACEMENTS.items():
+            section = section.replace(source, target)
         return section
 
     parts = re.split(r"(```.*?```)", text or "", flags=re.S)
@@ -579,10 +596,27 @@ def render_markdown(text):
     return bleach.clean(html, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS, strip=True)
 
 
+def _answer_document(content_html, mode):
+    """Wrap sanitized content in a consistent, accessible learning document."""
+    safe_mode = mode if mode in MODE_LABELS else DEFAULT_MODE
+    mode_label = html.escape(MODE_LABELS[safe_mode])
+    return (
+        f'<article class="ai-answer-document ai-answer-document--{safe_mode}">'
+        '<header class="ai-answer-document__header">'
+        '<span class="ai-answer-document__mark" aria-hidden="true">✦</span>'
+        '<span class="ai-answer-document__identity">'
+        '<small>DIT AI learning response</small>'
+        f"<strong>{mode_label}</strong>"
+        "</span>"
+        '<span class="ai-answer-document__quality">Clear · structured · reviewable</span>'
+        "</header>"
+        f'<div class="ai-answer-document__content">{content_html}</div>'
+        "</article>"
+    )
+
+
 def render_ai_answer(raw_text, mode):
     safe_mode = mode if mode in MODE_LABELS else DEFAULT_MODE
-    wrapper_start = f'<div class="ai-answer-document ai-answer-document--{safe_mode}">'
-    wrapper_end = "</div>"
     marker = "---ANSWERS---"
     if mode in ("quiz", "practice") and marker in raw_text:
         before, after = raw_text.split(marker, 1)
@@ -593,7 +627,7 @@ def render_ai_answer(raw_text, mode):
             f'<div class="answer-key-body">{render_markdown(after.strip())}</div>'
             "</details>"
         )
-        return wrapper_start + html + wrapper_end
+        return _answer_document(html, safe_mode)
     if mode == "flashcards":
         pattern = re.compile(
             r"\*\*Front:\*\*\s*(.+?)\s*\n+\s*\*\*Back:\*\*\s*(.+?)"
@@ -619,8 +653,8 @@ def render_ai_answer(raw_text, mode):
                     "</button></article>"
                 )
             rendered.append("</div>")
-            return wrapper_start + "".join(rendered) + wrapper_end
-    return wrapper_start + render_markdown(raw_text) + wrapper_end
+            return _answer_document("".join(rendered), safe_mode)
+    return _answer_document(render_markdown(raw_text), safe_mode)
 
 
 def suggested_followups(question, mode, module=None):

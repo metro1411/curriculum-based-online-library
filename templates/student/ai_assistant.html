@@ -16,6 +16,15 @@
   <span class="ai-feedback__status" data-feedback-status aria-live="polite"></span>
 </div>
 {%- endmacro %}
+{% macro source_card(source, href, web=false) -%}
+<a class="source-pill {{ 'source-pill--web' if web }}" href="{{ href }}" target="_blank" rel="noopener">
+  <span class="source-pill__icon">{{ icons.icon('external-link' if web else 'check-circle', size=14) }}</span>
+  <span class="source-pill__copy">
+    <strong>{{ source.title }}</strong>
+    <small>{{ 'Supplementary reference' if web else (source.type or 'Verified lecturer material') }}</small>
+  </span>
+</a>
+{%- endmacro %}
 {% block title %}DIT AI | {{ app_name }}{% endblock %}
 {% block content %}
 <div class="container ai-page fade-in">
@@ -87,7 +96,7 @@
           {% if msg.role == 'user' %}
           <div class="chat-turn chat-turn--user"><div class="chat-avatar chat-avatar--user">{{ current_user.full_name[:1]|upper }}</div><div class="chat-bubble chat-bubble--user"><p class="mb-0">{{ msg.content }}</p></div></div>
           {% else %}
-          <div class="chat-turn chat-turn--assistant" data-assistant-turn data-message-id="{{ msg.id }}"><div class="chat-avatar chat-avatar--assistant">{{ icons.icon('sparkles', size=16) }}</div><div class="chat-turn__body"><div class="chat-bubble chat-bubble--assistant">{{ msg.content_html|safe }}</div><div class="chat-message-actions"><button type="button" data-copy-answer title="Copy response">Copy</button><button type="button" data-regenerate title="Regenerate response">{{ icons.icon('refresh', size=13) }} Regenerate</button></div>{{ answer_feedback(msg.id) }}{% if msg.general_guidance %}<div class="general-guidance-note"><strong>General guidance</strong><span>No directly relevant approved lecturer resource was found for this question. This answer uses general academic knowledge{% if msg.web_sources %} supported by supplementary web research{% endif %}; confirm critical course details with your lecturer.</span></div>{% endif %}{% if msg.sources %}<div class="chat-sources"><span>{{ icons.icon('shield-check', size=13) }} Verified lecturer resources</span>{% for s in msg.sources %}<a class="source-pill" href="{{ url_for('student.resource_view', resource_id=s.id) }}" target="_blank" rel="noopener">{{ '✓ ' if s.verified }}{{ s.title }}</a>{% endfor %}</div>{% endif %}{% if msg.web_sources %}<div class="chat-sources chat-sources--web"><span>{{ icons.icon('external-link', size=13) }} Supplementary web sources</span>{% for s in msg.web_sources %}<a class="source-pill" href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a>{% endfor %}</div>{% endif %}</div></div>
+          <div class="chat-turn chat-turn--assistant" data-assistant-turn data-message-id="{{ msg.id }}"><div class="chat-avatar chat-avatar--assistant">{{ icons.icon('sparkles', size=16) }}</div><div class="chat-turn__body"><div class="chat-bubble chat-bubble--assistant">{{ msg.content_html|safe }}</div><div class="chat-message-actions"><button type="button" data-copy-answer title="Copy response">Copy</button><button type="button" data-regenerate title="Regenerate response">{{ icons.icon('refresh', size=13) }} Regenerate</button></div>{{ answer_feedback(msg.id) }}{% if msg.general_guidance %}<div class="general-guidance-note"><strong>General guidance</strong><span>No directly relevant approved lecturer resource was found for this question. This answer uses general academic knowledge{% if msg.web_sources %} supported by supplementary web research{% endif %}; confirm critical course details with your lecturer.</span></div>{% endif %}{% if msg.sources %}<div class="chat-sources"><span>{{ icons.icon('shield-check', size=13) }} Verified lecturer resources used</span>{% for s in msg.sources %}{{ source_card(s, url_for('student.resource_view', resource_id=s.id)) }}{% endfor %}</div>{% endif %}{% if msg.web_sources %}<div class="chat-sources chat-sources--web"><span>{{ icons.icon('external-link', size=13) }} Supplementary web sources</span>{% for s in msg.web_sources %}{{ source_card(s, s.url, true) }}{% endfor %}</div>{% endif %}</div></div>
           {% endif %}
         {% endfor %}
       </div>

@@ -305,6 +305,27 @@
       appendMeta(turn.querySelector(".chat-turn__body"), sources, webSources, generalGuidance);
       chat.appendChild(turn); decorateCodeBlocks(turn); scrollToBottom(); return turn;
     }
+    function createSourceCard(source, isWeb) {
+      var link = document.createElement("a");
+      link.className = "source-pill" + (isWeb ? " source-pill--web" : "");
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      var icon = document.createElement("span");
+      icon.className = "source-pill__icon";
+      icon.textContent = isWeb ? "↗" : "✓";
+      var copy = document.createElement("span");
+      copy.className = "source-pill__copy";
+      var title = document.createElement("strong");
+      title.textContent = source.title;
+      var type = document.createElement("small");
+      type.textContent = isWeb ? "Supplementary reference" : (source.type || "Verified lecturer material");
+      copy.appendChild(title);
+      copy.appendChild(type);
+      link.appendChild(icon);
+      link.appendChild(copy);
+      return link;
+    }
     function appendMeta(body, sources, webSources, generalGuidance) {
       sources = Array.isArray(sources) ? sources : [];
       webSources = Array.isArray(webSources) ? webSources : [];
@@ -314,13 +335,13 @@
         body.appendChild(notice);
       }
       if (sources && sources.length) {
-        var wrap = document.createElement("div"); wrap.className = "chat-sources"; wrap.innerHTML = "<span>Verified lecturer resources</span>";
-        sources.forEach(function (source) { var link = document.createElement("a"); link.className = "source-pill"; link.href = source.url; link.target = "_blank"; link.rel = "noopener"; link.textContent = (source.verified ? "✓ " : "") + source.title; wrap.appendChild(link); });
+        var wrap = document.createElement("div"); wrap.className = "chat-sources"; wrap.innerHTML = "<span>Verified lecturer resources used</span>";
+        sources.forEach(function (source) { wrap.appendChild(createSourceCard(source, false)); });
         body.appendChild(wrap);
       }
       if (webSources && webSources.length) {
         var webWrap = document.createElement("div"); webWrap.className = "chat-sources chat-sources--web"; webWrap.innerHTML = "<span>Supplementary web sources</span>";
-        webSources.forEach(function (source) { var link = document.createElement("a"); link.className = "source-pill"; link.href = source.url; link.target = "_blank"; link.rel = "noopener"; link.textContent = source.title; webWrap.appendChild(link); });
+        webSources.forEach(function (source) { webWrap.appendChild(createSourceCard(source, true)); });
         body.appendChild(webWrap);
       }
     }
@@ -419,7 +440,7 @@
       var reportToggle = event.target.closest("[data-ai-feedback] [data-report-toggle]"); if (reportToggle) { var reportGroup = reportToggle.closest("[data-ai-feedback]"); var reportPanel = reportGroup.querySelector("[data-feedback-report]"); reportPanel.hidden = !reportPanel.hidden; if (!reportPanel.hidden) reportGroup.querySelector("[data-feedback-note]").focus(); return; }
       var reportCancel = event.target.closest("[data-ai-feedback] [data-report-cancel]"); if (reportCancel) { reportCancel.closest("[data-ai-feedback]").querySelector("[data-feedback-report]").hidden = true; return; }
       var reportSubmit = event.target.closest("[data-ai-feedback] [data-report-submit]"); if (reportSubmit) { var issueGroup = reportSubmit.closest("[data-ai-feedback]"); var issueNote = issueGroup.querySelector("[data-feedback-note]").value.trim(); if (issueNote.length < 6) { window.showToast("Please briefly describe what looks incorrect.", "warning"); return; } sendFeedback(issueGroup, 1, true, issueNote); return; }
-      var copy = event.target.closest("[data-copy-answer]"); if (copy) { var answer = copy.closest("[data-assistant-turn]").querySelector(".chat-bubble--assistant"); copyText(answer.innerText).then(function () { window.showToast("Response copied.", "success"); }); return; }
+      var copy = event.target.closest("[data-copy-answer]"); if (copy) { var answer = copy.closest("[data-assistant-turn]").querySelector(".chat-bubble--assistant"); var answerContent = answer.querySelector(".ai-answer-document__content") || answer; copyText(answerContent.innerText).then(function () { window.showToast("Response copied.", "success"); }); return; }
       var copyCode = event.target.closest("[data-copy-code]"); if (copyCode) { var code = copyCode.closest("pre").querySelector("code"); copyText(code ? code.textContent : copyCode.closest("pre").innerText.replace("Copy code", "")).then(function () { copyCode.textContent = "Copied"; setTimeout(function () { copyCode.textContent = "Copy code"; }, 1400); }); return; }
       var regenerateButton = event.target.closest("[data-regenerate]"); if (regenerateButton) { regenerate(regenerateButton.closest("[data-assistant-turn]")); return; }
       var rename = event.target.closest("[data-rename-conversation]"); if (rename) { renameConversation(rename); }

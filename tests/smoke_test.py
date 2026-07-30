@@ -635,6 +635,32 @@ The ratio is \frac{1}{2}.""",
         raise AssertionError("raw LaTeX leaked into an AI answer")
     if "∑" not in mathematics_html or "≤" not in mathematics_html or "math-matrix" not in mathematics_html:
         raise AssertionError("AI mathematics did not render readable signs and matrices")
+    if (
+        'class="ai-answer-document__header"' not in mathematics_html
+        or 'class="ai-answer-document__content"' not in mathematics_html
+        or "Solve Question" not in mathematics_html
+    ):
+        raise AssertionError("AI answers are missing the structured response header or mode label")
+
+    stray_math_html = ai_engine.render_ai_answer(
+        r"""The condition is x \leq y and \sum values remain bounded.
+
+```python
+literal = r"\sum"
+```""",
+        "explain",
+    )
+    if "x ≤ y" not in stray_math_html or "∑ values" not in stray_math_html:
+        raise AssertionError("stray LaTeX-style commands were not converted into readable symbols")
+    if "literal = r&quot;\\sum&quot;" not in stray_math_html:
+        raise AssertionError("math conversion altered a command inside a code example")
+
+    quiz_html = ai_engine.render_ai_answer(
+        "1. What is 2 + 2?\n\n---ANSWERS---\n\n1. 4",
+        "quiz",
+    )
+    if 'class="answer-key"' not in quiz_html:
+        raise AssertionError("quiz answer keys are missing their styled disclosure container")
 
     # Conversations remain scoped to the student who owns them.
     generated_private = {**generated, "answer_text": "Private learner answer", "answer_html": "<p>Private learner answer</p>"}
