@@ -3,7 +3,7 @@
 {% import "partials/resource_card.html" as rc %}
 {% block title %}{{ resource.title }} — {{ app_name }}{% endblock %}
 {% block content %}
-<div class="container fade-in">
+<div class="container fade-in" data-study-root data-study-start-url="{{ study_start_url }}" data-study-heartbeat-template="{{ study_heartbeat_template }}">
   {% include "partials/breadcrumb.html" %}
 
   <div class="resource-view-header">
@@ -43,6 +43,7 @@
   </div>
 
   {% if resource.description %}<p>{{ resource.description }}</p>{% endif %}
+  <div class="study-progress card" data-study-progress><span class="study-progress__icon">{{ icons.icon('clock', size=17) }}</span><div><strong data-study-status>Focused study timer ready</strong><span data-study-detail>Keep this resource active for 10 minutes to qualify today’s streak.</span></div><div class="study-progress__bar"><span data-study-bar style="width:0%"></span></div></div>
 
   <div class="dashboard-grid" style="grid-template-columns: 2fr 1fr; margin-top: 20px;">
     <div>
@@ -77,6 +78,10 @@
         <h4>Resource Details</h4>
         <table class="meta-table">
           <tr><td>Module</td><td><a href="{{ url_for('student.module_resources', module_id=module.id) }}">{{ module.name }}</a></td></tr>
+          <tr><td>Module code</td><td>{{ module.code or 'Pending curriculum code' }}</td></tr>
+          <tr><td>Module type</td><td>{{ module.type_label }}</td></tr>
+          <tr><td>Academic year</td><td>{{ module.academic_year.label if module.academic_year else 'Legacy curriculum' }}</td></tr>
+          {% if resource.topic %}<tr><td>Topic</td><td>{{ resource.topic.title }}</td></tr>{% endif %}
           <tr><td>Programme</td><td>{{ programme.name }}</td></tr>
           <tr><td>NTA Level</td><td>{{ level.label }}</td></tr>
           <tr><td>Semester</td><td>{{ semester.label }}</td></tr>

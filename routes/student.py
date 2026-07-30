@@ -7,6 +7,7 @@ and download history. The AI Learning Assistant lives in routes/ai.py.
 """
 
 from collections import OrderedDict
+import secrets
 
 from flask import (
     Blueprint, render_template, redirect, url_for, flash, abort,
@@ -20,6 +21,7 @@ from extensions import db
 from models import (
     Department, Programme, NtaLevel, Semester, Module, Resource, ResourceView, Download,
     RESOURCE_TYPES, Topic, Announcement, StudentPreference, SavedItem, LearningEvent,
+    LecturerAssignment, AcademicQuestion, QUESTION_STATUSES, ResourceStudySession, User, utcnow,
 )
 from learning import (
     personal_recommendations, record_learning_event, student_insights,
@@ -30,6 +32,8 @@ from curriculum import (
     get_module_or_404, build_breadcrumbs, coming_soon_response,
 )
 from storage_backend import StorageError, read_file_text, send_resource_file
+from academic_activity import is_academic_question
+from notifications import notify
 
 student_bp = Blueprint("student", __name__)
 
@@ -62,9 +66,22 @@ def _student_can_access_module(module):
     if not module:
         return False
     programme = module.semester.nta_level.programme
-    if current_user.programme_id:
-        return programme.id == current_user.programme_id
-    return bool(current_user.department_id and programme.department_id == current_user.department_id)
+    if not module.is_published:
+        return False
+    if current_user.programme_id and programme.id != current_user.programme_id:
+        return False
+    if current_user.semester_id and module.semester_id != current_user.semester_id:
+        return False
+    if (
+        current_user.academic_year_id
+        and module.academic_year_id
+        and module.academic_year_id != current_user.academic_year_id
+    ):
+        return False
+    return bool(
+        current_user.programme_id
+        or (current_user.department_id and programme.department_id == current_user.department_id)
+    )
 
 
 def _own_department_or_403(department):
@@ -134,14 +151,15 @@ def dashboard():
     all_downloaded_ids = {
         row.resource_id for row in Download.query.filter_by(student_id=current_user.id).all()
     }
-    ai_questions = LearningEvent.query.filter_by(
-        student_id=current_user.id, event_type="ai_question"
+    academic_questions = LearningEvent.query.filter(
+        LearningEvent.student_id == current_user.id,
+        LearningEvent.event_type.in_(["academic_ai_question", "lecturer_question"]),
     ).count()
     dashboard_metrics = {
         "resources_viewed": len(all_viewed_ids),
         "saved": saved_count,
         "downloads": len(all_downloaded_ids),
-        "ai_questions": ai_questions,
+        "ai_questions": academic_questions,
     }
 
     return render_template(
@@ -158,6 +176,7 @@ def dashboard():
 @student_bp.route("/learning-insights", methods=["GET", "POST"])
 def learning_insights():
     modules = list(current_user.semester.modules) if current_user.semester else []
+    modules = [module for module in modules if _student_can_access_module(module)]
     module_id = request.values.get("module_id", type=int)
     module = next((item for item in modules if item.id == module_id), None) if module_id else None
     if module is None:
@@ -230,9 +249,11 @@ def search():
 @student_bp.route("/topic/<int:topic_id>/study", methods=["POST"])
 def study_topic(topic_id):
     topic = Topic.query.get_or_404(topic_id)
+    if not _student_can_access_module(topic.module):
+        abort(403)
     record_learning_event(
         current_user.id, topic.module_id, "topic_study", topic_id=topic.id,
-        duration_minutes=15, detail=topic.title,
+        duration_minutes=0, detail=topic.title,
     )
     db.session.commit()
     flash(f"Study activity recorded for {topic.title}.", "success")
@@ -339,7 +360,16 @@ def modules(dept_slug, prog_slug, level_number, semester_number):
     breadcrumbs = build_breadcrumbs(
         "student", department=department, programme=programme, level=level, semester=semester
     )
-    modules_list = sorted(semester.modules, key=lambda m: m.display_order)
+    modules_list = sorted(
+        [module for module in semester.modules if _student_can_access_module(module)],
+        key=lambda m: (m.module_type != "core", m.display_order),
+    )
+    if not modules_list:
+        return coming_soon_response(
+            "student", semester.label, "semester",
+            url_for("student.semesters", dept_slug=department.slug, prog_slug=programme.slug,
+                    level_number=level.level_number),
+        )
     resource_counts = {
         m.id: sum(1 for resource in m.resources if resource.is_verified)
         for m in modules_list
@@ -376,6 +406,27 @@ def module_resources(module_id):
         items = [r for r in resources if r.resource_type == key]
         if items:
             grouped[label] = items
+    topic_groups = []
+    assigned_resource_ids = set()
+    for topic in topics:
+        albums = OrderedDict()
+        for key, label in RESOURCE_TYPES:
+            items = [
+                resource for resource in resources
+                if resource.topic_id == topic.id and resource.resource_type == key
+            ]
+            if items:
+                albums[label] = items
+                assigned_resource_ids.update(resource.id for resource in items)
+        topic_groups.append({"topic": topic, "albums": albums})
+    unassigned_albums = OrderedDict()
+    for key, label in RESOURCE_TYPES:
+        items = [
+            resource for resource in resources
+            if resource.id not in assigned_resource_ids and resource.resource_type == key
+        ]
+        if items:
+            unassigned_albums[label] = items
 
     breadcrumbs = build_breadcrumbs(
         "student", department=department, programme=programme, level=level,
@@ -385,6 +436,7 @@ def module_resources(module_id):
         "student/module_resources.html",
         module=module, department=department, programme=programme, level=level,
         semester=semester, grouped=grouped, topics=topics, total_count=len(resources),
+        topic_groups=topic_groups, unassigned_albums=unassigned_albums,
         breadcrumbs=breadcrumbs,
     )
 
@@ -397,10 +449,6 @@ def module_resources(module_id):
 def resource_view(resource_id):
     resource = _student_resource_or_404(resource_id)
     db.session.add(ResourceView(student_id=current_user.id, resource_id=resource.id))
-    record_learning_event(
-        current_user.id, resource.module_id, "resource_study", duration_minutes=10,
-        detail=resource.title,
-    )
     db.session.commit()
 
     module = resource.module
@@ -445,7 +493,72 @@ def resource_view(resource_id):
         department=department, programme=programme, level=level, semester=semester,
         breadcrumbs=breadcrumbs, already_downloaded=already_downloaded,
         preview_kind=preview_kind, preview_html=preview_html, is_saved=is_saved,
+        study_start_url=url_for("student.start_resource_study", resource_id=resource.id),
+        study_heartbeat_template=url_for(
+            "student.heartbeat_resource_study", token="STUDY_TOKEN"
+        ),
     )
+
+
+@student_bp.route("/resource/<int:resource_id>/study/start", methods=["POST"])
+def start_resource_study(resource_id):
+    resource = _student_resource_or_404(resource_id)
+    session_row = ResourceStudySession(
+        token=secrets.token_urlsafe(32),
+        student_id=current_user.id,
+        resource_id=resource.id,
+        module_id=resource.module_id,
+        last_heartbeat_at=utcnow(),
+    )
+    db.session.add(session_row)
+    db.session.commit()
+    return {
+        "ok": True,
+        "token": session_row.token,
+        "active_seconds": session_row.active_seconds,
+        "qualified": False,
+    }
+
+
+@student_bp.route("/resource/study/<token>/heartbeat", methods=["POST"])
+def heartbeat_resource_study(token):
+    session_row = ResourceStudySession.query.filter_by(
+        token=token, student_id=current_user.id
+    ).first_or_404()
+    if session_row.qualified_at:
+        return {
+            "ok": True,
+            "active_seconds": session_row.active_seconds,
+            "qualified": True,
+        }
+    now = utcnow()
+    last = session_row.last_heartbeat_at
+    comparable_now = now
+    if last and last.tzinfo is None:
+        comparable_now = now.replace(tzinfo=None)
+    elapsed = int((comparable_now - last).total_seconds()) if last else 0
+    # The browser only sends heartbeats while visible and recently active.
+    # Capping each interval prevents delayed/background requests from granting
+    # unearned study time.
+    credited = min(45, elapsed) if 10 <= elapsed <= 120 else 0
+    session_row.active_seconds = min(600, session_row.active_seconds + credited)
+    session_row.last_heartbeat_at = comparable_now
+    if session_row.active_seconds >= 600 and session_row.qualified_at is None:
+        session_row.qualified_at = comparable_now
+        record_learning_event(
+            current_user.id,
+            session_row.module_id,
+            "resource_study_qualified",
+            duration_minutes=10,
+            detail=session_row.resource.title,
+            qualifies_for_streak=True,
+        )
+    db.session.commit()
+    return {
+        "ok": True,
+        "active_seconds": session_row.active_seconds,
+        "qualified": bool(session_row.qualified_at),
+    }
 
 
 @student_bp.route("/resource/<int:resource_id>/file")
@@ -472,7 +585,7 @@ def resource_download(resource_id):
 
     db.session.add(Download(student_id=current_user.id, resource_id=resource.id))
     record_learning_event(
-        current_user.id, resource.module_id, "resource_download", duration_minutes=2,
+        current_user.id, resource.module_id, "resource_download", duration_minutes=0,
         detail=resource.title,
     )
     db.session.commit()
@@ -504,3 +617,112 @@ def downloads():
         seen.add(d.resource_id)
         unique_downloads.append(d)
     return render_template("student/downloads.html", downloads=unique_downloads)
+
+
+# ---------------------------------------------------------------------------
+# Anonymous student-to-lecturer questions
+# ---------------------------------------------------------------------------
+
+@student_bp.route("/questions", methods=["GET", "POST"])
+def questions():
+    modules = [
+        module for module in (current_user.semester.modules if current_user.semester else [])
+        if _student_can_access_module(module)
+    ]
+    module_ids = {module.id for module in modules}
+    if request.method == "POST":
+        module_id = request.form.get("module_id", type=int)
+        module = next((item for item in modules if item.id == module_id), None)
+        topic_id = request.form.get("topic_id", type=int)
+        topic = Topic.query.filter_by(
+            id=topic_id, module_id=module.id, is_published=True
+        ).first() if module and topic_id else None
+        lecturer_id = request.form.get("lecturer_id", type=int)
+        approved_assignments = (
+            LecturerAssignment.query.join(User, LecturerAssignment.lecturer_id == User.id)
+            .filter(
+                LecturerAssignment.module_id == module_id,
+                LecturerAssignment.status == "approved",
+                User.is_active_account.is_(True),
+            )
+            .all()
+        ) if module else []
+        assignment = next(
+            (item for item in approved_assignments if item.lecturer_id == lecturer_id),
+            approved_assignments[0] if len(approved_assignments) == 1 else None,
+        )
+        subject = " ".join((request.form.get("subject") or "").split())
+        body = (request.form.get("body") or "").strip()
+        if module is None:
+            flash("Choose a module from your current curriculum.", "error")
+        elif topic_id and topic is None:
+            flash("Choose a topic that belongs to the selected module.", "error")
+        elif assignment is None:
+            flash("Choose an approved lecturer for this module.", "error")
+        elif not 4 <= len(subject) <= 180:
+            flash("Write a short, clear question subject.", "error")
+        elif not 15 <= len(body) <= 4000:
+            flash("Explain your academic question in 15–4,000 characters.", "error")
+        elif not is_academic_question(f"{subject} {body}", has_module_context=True):
+            flash("Please submit a genuine academic question related to your learning.", "error")
+        else:
+            item = AcademicQuestion(
+                student_id=current_user.id,
+                module_id=module.id,
+                topic_id=topic.id if topic else None,
+                lecturer_id=assignment.lecturer_id,
+                subject=subject,
+                body=body,
+                status="new",
+                academic_verified=True,
+            )
+            db.session.add(item)
+            db.session.flush()
+            record_learning_event(
+                current_user.id,
+                module.id,
+                "lecturer_question",
+                topic_id=topic.id if topic else None,
+                detail=f"Private question · {topic.title if topic else module.name}",
+                qualifies_for_streak=True,
+            )
+            notify(
+                assignment.lecturer,
+                "academic_question",
+                f"New anonymous question in {module.code or module.name}",
+                f"A student submitted private question {item.anonymous_ref}. "
+                "Their identity is intentionally hidden.",
+                target_url="/lecturer/questions",
+            )
+            db.session.commit()
+            flash(
+                f"Question {item.anonymous_ref} was sent privately. Your identity is hidden.",
+                "success",
+            )
+            return redirect(url_for("student.questions", submitted=item.anonymous_ref))
+
+    assignments = (
+        LecturerAssignment.query.join(User, LecturerAssignment.lecturer_id == User.id)
+        .filter(
+            LecturerAssignment.module_id.in_(module_ids or [-1]),
+            LecturerAssignment.status == "approved",
+            User.is_active_account.is_(True),
+        )
+        .all()
+    )
+    topics = Topic.query.filter(
+        Topic.module_id.in_(module_ids or [-1]), Topic.is_published.is_(True)
+    ).order_by(Topic.display_order).all()
+    items = (
+        AcademicQuestion.query.filter_by(student_id=current_user.id)
+        .order_by(AcademicQuestion.updated_at.desc())
+        .all()
+    )
+    return render_template(
+        "student/questions.html",
+        questions=items,
+        modules=modules,
+        assignments=assignments,
+        topics=topics,
+        statuses=dict(QUESTION_STATUSES),
+    )

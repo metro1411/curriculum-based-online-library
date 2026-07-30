@@ -10,8 +10,10 @@ from flask import Blueprint, abort, jsonify, request, url_for
 from flask_login import login_required, current_user
 
 import ai_engine
+from academic_activity import is_academic_question
 from extensions import db
 from models import Department, Programme, NtaLevel, Semester, Module, Resource, LecturerAssignment
+from learning import record_learning_event
 
 api_bp = Blueprint("api", __name__, url_prefix="/api/v1")
 
@@ -21,12 +23,20 @@ def _visible_module_query():
     if current_user.is_student:
         if not current_user.programme_id:
             return Module.query.filter(Module.id == -1)
-        return Module.query.join(Semester).join(NtaLevel).filter(
-            NtaLevel.programme_id == current_user.programme_id
+        query = Module.query.join(Semester).join(NtaLevel).filter(
+            NtaLevel.programme_id == current_user.programme_id,
+            Module.is_active.is_(True),
+            Module.publication_status == "published",
         )
+        if current_user.semester_id:
+            query = query.filter(Module.semester_id == current_user.semester_id)
+        if current_user.academic_year_id:
+            query = query.filter(Module.academic_year_id == current_user.academic_year_id)
+        return query
     if current_user.is_lecturer:
         return Module.query.join(LecturerAssignment).filter(
-            LecturerAssignment.lecturer_id == current_user.id
+            LecturerAssignment.lecturer_id == current_user.id,
+            LecturerAssignment.status == "approved",
         )
     if current_user.is_department_head:
         return Module.query.join(Semester).join(NtaLevel).join(Programme).filter(
@@ -40,13 +50,21 @@ def _visible_resource_query():
     if current_user.is_student:
         if not current_user.programme_id:
             return Resource.query.filter(Resource.id == -1)
-        return Resource.query.join(Module).join(Semester).join(NtaLevel).filter(
+        query = Resource.query.join(Module).join(Semester).join(NtaLevel).filter(
             NtaLevel.programme_id == current_user.programme_id,
             Resource.verification_status == "verified",
+            Module.is_active.is_(True),
+            Module.publication_status == "published",
         )
+        if current_user.semester_id:
+            query = query.filter(Module.semester_id == current_user.semester_id)
+        if current_user.academic_year_id:
+            query = query.filter(Module.academic_year_id == current_user.academic_year_id)
+        return query
     if current_user.is_lecturer:
         return Resource.query.join(LecturerAssignment).filter(
-            LecturerAssignment.lecturer_id == current_user.id
+            LecturerAssignment.lecturer_id == current_user.id,
+            LecturerAssignment.status == "approved",
         )
     if current_user.is_department_head:
         return Resource.query.join(Module).join(Semester).join(NtaLevel).join(Programme).filter(
@@ -84,7 +102,10 @@ def curriculum():
                     level_json["semesters"].append({
                         "id": sem.id, "semester_number": sem.semester_number,
                         "is_active": sem.is_active,
-                        "modules": [{"id": m.id, "name": m.name, "code": m.code}
+                        "modules": [{"id": m.id, "name": m.name, "code": m.code,
+                                     "module_type": m.module_type,
+                                     "academic_year": m.academic_year.label if m.academic_year else None,
+                                     "publication_status": m.publication_status}
                                     for m in sem.modules],
                     })
                 prog_json["nta_levels"].append(level_json)
@@ -120,6 +141,9 @@ def modules():
         query = query.filter_by(semester_id=semester_id)
     return jsonify(modules=[
         {"id": m.id, "name": m.name, "code": m.code, "semester_id": m.semester_id,
+         "module_type": m.module_type, "type_label": m.type_label,
+         "academic_year": m.academic_year.label if m.academic_year else None,
+         "publication_status": m.publication_status,
          "resource_count": sum(
              1 for resource in m.resources
              if not current_user.is_student or resource.is_verified
@@ -183,15 +207,33 @@ def ai_ask():
     if len(question) > 4000:
         return jsonify(ok=False, error="That question is too long. Please shorten it."), 400
 
-    module = db.session.get(Module, module_id) if module_id else None
+    module = (
+        _visible_module_query().filter(Module.id == module_id).first()
+        if module_id else None
+    )
     if module_id and module is None:
         return jsonify(ok=False, error="The requested module was not found."), 404
-    if module and (not current_user.programme_id or module.semester.nta_level.programme_id != current_user.programme_id):
-        return jsonify(ok=False, error="Choose a module from your own programme."), 403
     result = ai_engine.ask(mode=mode, question=question, module=module, student=current_user)
 
     if not result["ok"]:
         return jsonify(ok=False, error=result["error"]), 503
+
+    event_module = module or _visible_module_query().order_by(Module.display_order).first()
+    if event_module and is_academic_question(
+        question, has_module_context=bool(module)
+    ):
+        record_learning_event(
+            current_user.id,
+            event_module.id,
+            "academic_ai_question",
+            duration_minutes=0,
+            detail=(
+                f"Private academic question · {module.name}"
+                if module else "Private general academic question"
+            ),
+            qualifies_for_streak=True,
+        )
+        db.session.commit()
 
     return jsonify(
         ok=True,

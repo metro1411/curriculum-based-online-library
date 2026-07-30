@@ -5,12 +5,12 @@
 <div class="container fade-in analytics-page lecturer-overview">
   <div class="module-banner">
     <div>
-      <span class="page-header__eyebrow">Lecturer workspace</span>
+      <span class="page-header__eyebrow">{{ module.code or 'Code pending' }} · {{ module.type_label }} · {{ module.academic_year.label if module.academic_year else 'Legacy curriculum' }}</span>
       <h1>{{ module.name }}</h1>
       <p>{{ module.semester.nta_level.programme.name }} &middot; {{ module.semester.nta_level.label }} &middot; {{ module.semester.label }}</p>
     </div>
     <div class="hero-actions">
-      <form method="GET" class="analytics-filter"><label class="sr-only" for="days">Analytics period</label><select class="form-select" id="days" name="days" onchange="this.form.submit()"><option value="7" {{ 'selected' if days == 7 }}>Last 7 days</option><option value="30" {{ 'selected' if days == 30 }}>Last 30 days</option><option value="90" {{ 'selected' if days == 90 }}>Last 90 days</option></select></form>
+      <form method="GET" class="analytics-filter"><label class="sr-only" for="days">Analytics period</label><select class="form-select" id="days" name="days" data-submit-on-change><option value="7" {{ 'selected' if days == 7 }}>Last 7 days</option><option value="30" {{ 'selected' if days == 30 }}>Last 30 days</option><option value="90" {{ 'selected' if days == 90 }}>Last 90 days</option></select></form>
       <a href="{{ url_for('lecturer.module_content', module_id=module.id) }}" class="btn btn-secondary">{{ icons.icon('edit', size=16) }} Manage content</a>
       <a href="{{ url_for('lecturer.upload_form', module_id=module.id) }}" class="btn btn-primary">{{ icons.icon('upload', size=16) }} Add material</a>
     </div>
@@ -30,7 +30,7 @@
       <div class="section-header"><div><span class="section-kicker">Engagement trend</span><h2>Learning activity</h2></div><span class="badge badge-teal">{{ days }} days</span></div>
       {% if insights.events %}
       <div class="bar-chart" aria-label="Daily learning activity chart">{% for point in insights.timeline %}<div class="bar-chart__column" title="{{ point.label }}: {{ point.students }} learning actions"><i style="height:{{ point.height }}%"></i><small>{{ point.label if loop.index0 % 5 == 0 else '' }}</small></div>{% endfor %}</div>
-      <div class="chart-summary"><span><strong>{{ insights.active_days }}</strong> active learning days</span><span><strong>{{ insights.questions }}</strong> AI support requests</span><span><strong>{{ insights.topic_coverage }}%</strong> topic coverage</span></div>
+      <div class="chart-summary"><span><strong>{{ insights.active_days }}</strong> active learning days</span><span><strong>{{ insights.questions }}</strong> private lecturer questions</span><span><strong>{{ insights.topic_coverage }}%</strong> topic coverage</span></div>
       {% else %}
       <div class="empty-state"><span class="empty-state__icon">{{ icons.icon('bar-chart', size=30) }}</span><h3>Learning metrics will appear here</h3><p>Resource study, topic progress and AI support requests are aggregated automatically.</p></div>
       {% endif %}
@@ -47,7 +47,7 @@
   <section class="analytics-grid analytics-grid--three">
     <article class="card card-pad"><div class="section-header"><div><span class="section-kicker">Curriculum signal</span><h2>Topic activity</h2></div></div>{% for item in insights.topic_rows %}<div class="topic-row"><div><strong>{{ item.topic.title }}</strong><small>{{ item.actions }} learning action{{ '' if item.actions == 1 else 's' }}</small></div><span>{{ item.actions }}</span></div>{% else %}<div class="empty-state"><p>Add curriculum topics to start topic-level tracking.</p></div>{% endfor %}</article>
     <article class="card card-pad"><div class="section-header"><div><span class="section-kicker">Resource demand</span><h2>Popular resources</h2></div></div>{% for item in insights.popular_resources %}<div class="insight-list-item"><span class="rank">{{ item.views }}</span><div><strong>{{ item.resource.title }}</strong><small>{{ item.resource.type_label }} · {{ item.views }} view{{ '' if item.views == 1 else 's' }}</small></div></div>{% else %}<div class="empty-state"><p>Resource popularity will appear as students open materials.</p></div>{% endfor %}</article>
-    <article class="card card-pad"><div class="section-header"><div><span class="section-kicker">Student questions</span><h2>Repeated support needs</h2></div></div>{% for question, count in insights.repeated_questions %}<div class="insight-list-item"><span class="rank">{{ count }}</span><div><strong>{{ question }}</strong><small>AI support request{{ '' if count == 1 else 's' }}</small></div></div>{% else %}<div class="empty-state"><p>No repeated AI questions recorded yet.</p></div>{% endfor %}</article>
+    <article class="card card-pad"><div class="section-header"><div><span class="section-kicker">Anonymous student questions</span><h2>Repeated support needs</h2></div><a class="text-link" href="{{ url_for('lecturer.questions', module_id=module.id) }}">Open inbox</a></div>{% for question, count in insights.repeated_questions %}<div class="insight-list-item"><span class="rank">{{ count }}</span><div><strong>{{ question }}</strong><small>Private academic question{{ '' if count == 1 else 's' }}</small></div></div>{% else %}<div class="empty-state"><p>No repeated lecturer questions recorded yet. Private DIT AI chats never appear here.</p></div>{% endfor %}</article>
   </section>
 </div>
 {% endblock %}

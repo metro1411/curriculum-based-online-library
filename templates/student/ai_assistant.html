@@ -25,7 +25,7 @@
         <div class="conv-row" data-conversation-row data-conversation-title="{{ conv.title|lower }}">
           <a class="conv-item {{ 'active' if active_conversation and active_conversation.id == conv.id }}" href="{{ url_for('ai.assistant', conversation_id=conv.id) }}"><span class="conv-item__title">{{ conv.title }}</span></a>
           <button type="button" class="conv-item__rename" data-rename-conversation="{{ conv.id }}" data-title="{{ conv.title }}" aria-label="Rename conversation">{{ icons.icon('edit', size=13) }}</button>
-          <button type="button" class="conv-item__delete btn-icon btn-ghost" style="width:25px;height:25px;padding:2px;" onclick="document.getElementById('delete-conv-{{ conv.id }}').requestSubmit();" aria-label="Delete conversation">{{ icons.icon('trash', size=13) }}</button>
+          <button type="button" class="conv-item__delete btn-icon btn-ghost" style="width:25px;height:25px;padding:2px;" data-submit-form="delete-conv-{{ conv.id }}" aria-label="Delete conversation">{{ icons.icon('trash', size=13) }}</button>
         </div>
         <form id="delete-conv-{{ conv.id }}" method="POST" action="{{ url_for('ai.delete_conversation', conversation_id=conv.id) }}" data-confirm="This will permanently delete this conversation." data-confirm-title="Delete conversation?" style="display:none;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
         {% endfor %}

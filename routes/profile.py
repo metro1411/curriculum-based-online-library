@@ -60,6 +60,12 @@ def settings():
             preference.weekly_goal_minutes = weekly_goal
             preference.learning_goal = (request.form.get("learning_goal") or "").strip()[:220] or None
             preference.data_saver = bool(request.form.get("data_saver"))
+            reminder_frequency = request.form.get("reminder_frequency") or "daily"
+            if reminder_frequency not in {"daily", "weekly", "off"}:
+                reminder_frequency = "daily"
+            preference.reminder_frequency = reminder_frequency
+            preference.optional_emails = bool(request.form.get("optional_emails"))
+            preference.goal_reminders = bool(request.form.get("goal_reminders"))
 
         photo = request.files.get("profile_photo")
         if photo and photo.filename:

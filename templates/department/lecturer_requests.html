@@ -1,7 +1,24 @@
 {% extends "base.html" %}
 {% import "partials/icons.html" as icons %}
-{% block title %}Lecturer requests | {{ app_name }}{% endblock %}
+{% block title %}Lecturer verification | {{ app_name }}{% endblock %}
 {% block content %}
-<div class="container fade-in department-page"><div class="page-header"><span class="page-header__eyebrow">{{ department.name }}</span><h1>Lecturer account requests</h1><p>Approve only confirmed department lecturers, then assign the modules they may manage.</p></div>
-{% for item in lecturer_requests %}<article class="card card-pad request-card"><div class="request-card__header"><div><span class="badge badge-neutral">{{ item.status|title }}</span><h2>{{ item.user.full_name }}</h2><p>{{ item.user.registration_number }} · {{ item.user.email }}</p></div><small>Requested {{ item.created_at.strftime('%d %b %Y') }}</small></div><dl class="request-details"><div><dt>Department</dt><dd>{{ item.department.name }}</dd></div><div><dt>Teaching area</dt><dd>{{ item.teaching_interest or 'Not supplied' }}</dd></div>{% if item.note %}<div><dt>Note</dt><dd>{{ item.note }}</dd></div>{% endif %}</dl>{% if item.status == 'pending' %}<form method="POST" action="{{ url_for('department.approve_lecturer', user_id=item.user_id) }}" class="approval-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><fieldset><legend>Assign approved modules</legend><div class="module-check-grid">{% for module in modules %}<label class="form-check"><input type="checkbox" name="module_ids" value="{{ module.id }}"> <span>{{ module.name }}<small>{{ module.semester.nta_level.label }} · {{ module.semester.label }}</small></span></label>{% endfor %}</div></fieldset><div class="approval-form__actions"><button class="btn btn-primary">Approve lecturer</button><button class="btn btn-danger" type="submit" formaction="{{ url_for('department.reject_lecturer', user_id=item.user_id) }}" data-confirm="Reject this lecturer request? The applicant will not be able to sign in." data-confirm-title="Reject lecturer request">Reject request</button></div></form>{% else %}<p class="status-note">Reviewed by {{ item.reviewed_by.full_name if item.reviewed_by else 'Department administration' }}.</p>{% endif %}</article>{% else %}<div class="card card-pad empty-state"><span class="empty-state__icon">{{ icons.icon('users', size=28) }}</span><h2>No lecturer registrations yet</h2><p>New 1403… lecturer registrations will appear here for review.</p></div>{% endfor %}</div>
+<div class="container fade-in department-page">
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ department.name }}</span><h1>Lecturer verification</h1><p>Verify confirmed staff first. Approved lecturers then claim their modules for HOD review.</p></div><a class="btn btn-secondary" href="{{ url_for('department.lecturers') }}">Lecturer directory</a></div>
+  <div class="request-list">
+  {% for item in lecturer_requests %}
+    <article class="card card-pad request-card">
+      <div class="request-card__header"><div><span class="badge badge-{{ 'warning' if item.status == 'pending' else 'teal' if item.status == 'approved' else 'neutral' }}">{{ item.status|title }}</span><h2>{{ item.user.full_name }}</h2><p>{{ item.user.registration_number }} · {{ item.user.email }}</p></div><small>Requested {{ item.created_at.strftime('%d %b %Y') }}</small></div>
+      <dl class="request-details"><div><dt>Department</dt><dd>{{ item.department.name }}</dd></div><div><dt>Teaching interest</dt><dd>{{ item.teaching_interest or 'Not supplied' }}</dd></div>{% if item.note %}<div><dt>Applicant note</dt><dd>{{ item.note }}</dd></div>{% endif %}</dl>
+      {% if item.status == 'pending' %}
+      <div class="approval-form__actions">
+        <form method="POST" action="{{ url_for('department.approve_lecturer', user_id=item.user_id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary">Verify and approve</button></form>
+        <form method="POST" action="{{ url_for('department.reject_lecturer', user_id=item.user_id) }}" data-confirm="Reject this lecturer registration? The applicant will not be able to sign in."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-danger">Reject request</button></form>
+      </div>
+      {% else %}<p class="status-note">Reviewed by {{ item.reviewed_by.full_name if item.reviewed_by else 'Department administration' }}{% if item.reviewed_at %} on {{ item.reviewed_at.strftime('%d %b %Y') }}{% endif %}.</p>{% endif %}
+    </article>
+  {% else %}
+    <div class="card card-pad empty-state"><span class="empty-state__icon">{{ icons.icon('users', size=28) }}</span><h2>No lecturer registrations yet</h2><p>New lecturer registrations will appear here for verification.</p></div>
+  {% endfor %}
+  </div>
+</div>
 {% endblock %}

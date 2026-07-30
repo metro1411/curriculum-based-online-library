@@ -3,8 +3,10 @@
 import logging
 import os
 import warnings
+from datetime import datetime
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from flask_login import current_user, logout_user
 from sqlalchemy import inspect, text
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -48,10 +50,13 @@ def create_app():
     app.jinja_env.trim_blocks = True
     app.jinja_env.lstrip_blocks = True
     _register_login_manager()
+    _register_account_guard(app)
     _register_blueprints(app)
     _register_error_handlers(app)
     _register_context_processors(app)
     _register_health_check(app)
+    _register_security_headers(app)
+    _register_commands(app)
 
     with app.app_context():
         db.create_all()
@@ -89,6 +94,15 @@ def _register_login_manager():
         return redirect(url_for("auth.student_login", next=request.path))
 
 
+def _register_account_guard(app):
+    @app.before_request
+    def reject_deactivated_session():
+        if current_user.is_authenticated and not current_user.is_active_account:
+            logout_user()
+            flash("Your account is not active. Please contact your department.", "warning")
+            return redirect(url_for("auth.login"))
+
+
 def _register_blueprints(app):
     from routes.ai import ai_bp
     from routes.api import api_bp
@@ -97,6 +111,7 @@ def _register_blueprints(app):
     from routes.main import main_bp
     from routes.profile import profile_bp
     from routes.department import department_bp
+    from routes.notifications import notifications_bp
     from routes.student import student_bp
 
     app.register_blueprint(main_bp)
@@ -105,9 +120,9 @@ def _register_blueprints(app):
     app.register_blueprint(student_bp)
     app.register_blueprint(lecturer_bp)
     app.register_blueprint(department_bp)
+    app.register_blueprint(notifications_bp)
     app.register_blueprint(ai_bp)
     app.register_blueprint(api_bp)
-    csrf.exempt(api_bp)
 
 
 def _register_error_handlers(app):
@@ -145,6 +160,9 @@ def _apply_schema_migrations(app):
             "account_status": "VARCHAR(20) NOT NULL DEFAULT 'active'",
             "profile_photo_filename": "VARCHAR(300)",
             "profile_photo_mime_type": "VARCHAR(120)",
+            "academic_year_id": "INTEGER",
+            "deactivated_at": "TIMESTAMP",
+            "deactivated_by_id": "INTEGER",
         }
         with db.engine.begin() as connection:
             for name, definition in additions.items():
@@ -162,44 +180,156 @@ def _apply_schema_migrations(app):
         additions = {
             "learning_goal": "VARCHAR(220)",
             "data_saver": "BOOLEAN NOT NULL DEFAULT FALSE",
+            "reminder_frequency": "VARCHAR(20) NOT NULL DEFAULT 'daily'",
+            "optional_emails": "BOOLEAN NOT NULL DEFAULT TRUE",
+            "goal_reminders": "BOOLEAN NOT NULL DEFAULT TRUE",
         }
         with db.engine.begin() as connection:
             for name, definition in additions.items():
                 if name not in preference_columns:
                     connection.execute(text(f"ALTER TABLE student_preferences ADD COLUMN {name} {definition}"))
 
-    if "resources" not in tables:
-        return
-    column_names = {column["name"] for column in inspector.get_columns("resources")}
-    legacy_column = "is_demo_content"
-    if legacy_column not in column_names:
-        return
+    additions_by_table = {
+        "modules": {
+            "academic_year_id": "INTEGER",
+            "module_type": "VARCHAR(30) NOT NULL DEFAULT 'core'",
+            "cohort_label": "VARCHAR(80)",
+            "publication_status": "VARCHAR(20) NOT NULL DEFAULT 'published'",
+            "created_by_id": "INTEGER",
+            "updated_at": "TIMESTAMP",
+        },
+        "lecturer_assignments": {
+            "status": "VARCHAR(20) NOT NULL DEFAULT 'approved'",
+            "reviewed_by_id": "INTEGER",
+            "reviewed_at": "TIMESTAMP",
+            "rejection_reason": "VARCHAR(500)",
+        },
+        "topics": {
+            "category": "VARCHAR(30) NOT NULL DEFAULT 'concept'",
+            "status": "VARCHAR(30) NOT NULL DEFAULT 'planned'",
+            "is_published": "BOOLEAN NOT NULL DEFAULT TRUE",
+            "updated_at": "TIMESTAMP",
+        },
+        "resources": {
+            "topic_id": "INTEGER",
+        },
+        "learning_events": {
+            "qualifies_for_streak": "BOOLEAN NOT NULL DEFAULT FALSE",
+        },
+    }
+    for table_name, additions in additions_by_table.items():
+        inspector = inspect(db.engine)
+        if table_name not in inspector.get_table_names():
+            continue
+        column_names = {column["name"] for column in inspector.get_columns(table_name)}
+        with db.engine.begin() as connection:
+            for name, definition in additions.items():
+                if name not in column_names:
+                    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {definition}"))
 
-    # This legacy, non-null field was removed from the model. Without a server
-    # default, old SQLite databases reject every new lecturer upload. It held no
-    # learner-facing data, so removing it restores compatibility cleanly.
-    with db.engine.begin() as connection:
-        connection.execute(text(f"ALTER TABLE resources DROP COLUMN {legacy_column}"))
-    app.logger.info("Removed legacy resources schema column during startup migration.")
+    inspector = inspect(db.engine)
+    if "resources" in inspector.get_table_names():
+        column_names = {column["name"] for column in inspector.get_columns("resources")}
+        legacy_column = "is_demo_content"
+        if legacy_column in column_names:
+            # This obsolete field had no learner-facing data and prevented new
+            # uploads in old SQLite packages.
+            with db.engine.begin() as connection:
+                connection.execute(text(f"ALTER TABLE resources DROP COLUMN {legacy_column}"))
+            app.logger.info("Removed legacy resources schema column during startup migration.")
+
+    # Historical AI prompts must never remain available as lecturer analytics.
+    if "learning_events" in inspector.get_table_names():
+        with db.engine.begin() as connection:
+            connection.execute(text(
+                "UPDATE learning_events SET detail = 'Private AI learning question' "
+                "WHERE event_type = 'ai_question'"
+            ))
 
 
 def _register_context_processors(app):
     import ai_engine
     from flask_login import current_user
-    from models import StudentPreference
+    from models import Notification, StudentPreference
 
     @app.context_processor
     def inject_globals():
         data_saver = False
+        unread_notification_count = 0
         if current_user.is_authenticated and current_user.is_student:
             preference = StudentPreference.query.filter_by(student_id=current_user.id).first()
             data_saver = bool(preference and preference.data_saver)
+        if current_user.is_authenticated:
+            unread_notification_count = Notification.query.filter_by(
+                user_id=current_user.id, is_read=False
+            ).count()
         return {
             "app_name": app.config["APP_NAME"],
             "app_tagline": app.config["APP_TAGLINE"],
             "ai_available": ai_engine.is_available(),
             "data_saver": data_saver,
+            "unread_notification_count": unread_notification_count,
         }
+
+
+def _register_security_headers(app):
+    @app.after_request
+    def secure_response(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        )
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' data:; media-src 'self' https:; "
+            "frame-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; "
+            "connect-src 'self'; font-src 'self'; frame-ancestors 'none'; "
+            "base-uri 'self'; form-action 'self'",
+        )
+        if app.config["IS_PRODUCTION"]:
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+
+def _register_commands(app):
+    @app.cli.command("send-study-reminders")
+    def send_study_reminders():
+        """Send one privacy-safe goal reminder at the selected cadence."""
+        from models import Notification, StudentPreference, User
+        from notifications import notify, reminder_is_due
+
+        now = datetime.utcnow()
+        today = datetime.combine(now.date(), datetime.min.time())
+        sent = 0
+        preferences = StudentPreference.query.all()
+        for preference in preferences:
+            student = db.session.get(User, preference.student_id)
+            if not student or not student.is_active_account or not reminder_is_due(preference, now):
+                continue
+            already_sent = Notification.query.filter(
+                Notification.user_id == student.id,
+                Notification.kind == "study_reminder",
+                Notification.created_at >= today,
+            ).first()
+            if already_sent:
+                continue
+            notify(
+                student,
+                "study_reminder",
+                "Keep your learning goal moving",
+                f"Your weekly goal is {preference.weekly_goal_minutes} focused minutes. "
+                "Open a module resource or ask a genuine academic question when you are ready.",
+                target_url="/learning-insights",
+                optional_email=True,
+            )
+            sent += 1
+        db.session.commit()
+        print(f"Sent {sent} study reminder notification(s).")
 
 
 def _register_health_check(app):

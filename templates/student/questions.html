@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Ask a lecturer privately | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">Private support</span><h1>Ask your lecturer</h1><p>Send an academic question without showing your identity.</p></div><a class="btn btn-secondary" href="{{ url_for('ai.assistant') }}">Ask DIT AI</a></div>
+  <div class="question-layout">
+    <section class="card card-pad question-composer">
+      <div class="privacy-banner">{{ icons.icon('shield-check', size=18) }} <div><strong>Your identity stays hidden</strong><span>The lecturer sees only a question reference.</span></div></div>
+      <form method="POST" data-question-form><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group"><label class="form-label" for="question-module">Module</label><select class="form-select" id="question-module" name="module_id" data-question-module required><option value="">Choose module</option>{% for module in modules %}<option value="{{ module.id }}">{{ module.code or 'Code pending' }} · {{ module.name }}</option>{% endfor %}</select></div>
+        <div class="form-grid form-grid--two">
+          <div class="form-group"><label class="form-label" for="question-topic">Topic</label><select class="form-select" id="question-topic" name="topic_id" data-question-topic><option value="">General module question</option>{% for topic in topics %}<option value="{{ topic.id }}" data-module-id="{{ topic.module_id }}">{{ topic.category_label }} · {{ topic.unit_label or 'Topic' }} · {{ topic.title }}</option>{% endfor %}</select></div>
+          <div class="form-group"><label class="form-label" for="question-lecturer">Lecturer</label><select class="form-select" id="question-lecturer" name="lecturer_id" data-question-lecturer required><option value="">Choose lecturer</option>{% for assignment in assignments %}<option value="{{ assignment.lecturer_id }}" data-module-id="{{ assignment.module_id }}">{{ assignment.lecturer.full_name }}</option>{% endfor %}</select></div>
+        </div>
+        <div class="form-group"><label class="form-label" for="question-subject">Question subject</label><input class="form-input" id="question-subject" name="subject" maxlength="180" placeholder="e.g. Applying the Routh–Hurwitz stability criterion" required></div>
+        <div class="form-group"><label class="form-label" for="question-body">Your question</label><textarea class="form-textarea" id="question-body" name="body" rows="6" maxlength="4000" placeholder="What did you try, and where did you get stuck?" required></textarea><p class="form-hint">Genuine academic questions count toward today’s streak.</p></div>
+        <button class="btn btn-primary">Send private question</button>
+      </form>
+    </section>
+
+    <section>
+      <div class="section-header"><div><span class="section-kicker">Private history</span><h2>Your questions</h2></div><span class="badge badge-teal">{{ questions|length }}</span></div>
+      <div class="question-thread-list">{% for question in questions %}<article class="card card-pad question-thread" id="{{ question.anonymous_ref }}"><div class="question-thread__header"><div><span class="badge question-status question-status--{{ question.status }}">{{ question.status_label }}</span><h3>{{ question.subject }}</h3><p>{{ question.anonymous_ref }} · {{ question.module.code or question.module.name }}{% if question.topic %} · {{ question.topic.title }}{% endif %}</p></div><small>{{ question.updated_at.strftime('%d %b %Y') }}</small></div><div class="question-thread__prompt"><strong>Your question</strong><p>{{ question.body }}</p></div>{% if question.answer %}<div class="question-thread__answer"><strong>Lecturer response</strong><p>{{ question.answer }}</p></div>{% elif question.status == 'will_address_in_class' %}<div class="question-thread__answer"><p>Your lecturer plans to address this topic in class.</p></div>{% endif %}</article>{% else %}<div class="card card-pad empty-state"><span class="empty-state__icon">{{ icons.icon('help-circle', size=27) }}</span><h3>No private questions yet</h3><p>Your submitted questions and lecturer responses will appear here.</p></div>{% endfor %}</div>
+    </section>
+  </div>
+</div>
+{% endblock %}

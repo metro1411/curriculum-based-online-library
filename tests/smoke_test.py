@@ -13,6 +13,7 @@ import io
 import os
 import sys
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,7 +24,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # These values must be set before importing the application configuration.
 # Never inherit DATABASE_URL: a smoke test must not touch a developer's local
 # data or a deployed Supabase/Postgres database.
-database_file = Path(tempfile.gettempdir()) / "smart_dit_smoke.db"
+database_file = Path(tempfile.gettempdir()) / f"smart_dit_smoke_{os.getpid()}.db"
 database_file.unlink(missing_ok=True)
 os.environ["DATABASE_URL"] = f"sqlite:///{database_file.as_posix()}"
 os.environ.setdefault("FLASK_DEBUG", "0")
@@ -36,6 +37,10 @@ os.environ["GEMINI_API_KEY"] = ""
 os.environ["SUPABASE_URL"] = ""
 os.environ["SUPABASE_SERVICE_ROLE_KEY"] = ""
 os.environ["HOD_ACTIVATION_CODE"] = "isolated-test-hod-code"
+os.environ["SMTP_HOST"] = ""
+os.environ["SMTP_USERNAME"] = ""
+os.environ["SMTP_PASSWORD"] = ""
+os.environ["MAIL_FROM"] = ""
 
 import config  # noqa: E402
 import ai_engine  # noqa: E402
@@ -49,7 +54,11 @@ config.RESOURCE_UPLOAD_DIR = TEST_UPLOADS.name
 import storage_backend  # noqa: E402
 from app import app  # noqa: E402
 from extensions import db  # noqa: E402
-from models import LecturerAssignment, LecturerRequest, Resource, StudentPreference, User  # noqa: E402
+from models import (  # noqa: E402
+    AcademicQuestion, AcademicYear, AuditLog, LearningEvent, LecturerAssignment,
+    LecturerRequest, Module, Notification, Resource, ResourceStudySession,
+    StudentPreference, Topic, User, utcnow,
+)
 
 
 def expect(response, status, label):
@@ -78,6 +87,8 @@ def main():
     expect(health, 200, "health check")
     if health.get_json() != {"status": "ok"}:
         raise AssertionError("health check did not return an ok payload")
+    if "frame-ancestors 'none'" not in health.headers.get("Content-Security-Policy", ""):
+        raise AssertionError("security headers were not applied")
     expect(anonymous.get("/dashboard"), 302, "student login guard")
     expect(anonymous.get("/lecturer/dashboard"), 302, "lecturer login guard")
 
@@ -130,6 +141,25 @@ def main():
     answer_data = answer.get_json()
     if not answer_data.get("ok") or "math-inline" not in answer_data.get("answer_html", ""):
         raise AssertionError("AI answer payload was not formatted as expected")
+    with app.app_context():
+        api_event_count = LearningEvent.query.filter_by(
+            event_type="academic_ai_question", qualifies_for_streak=True
+        ).count()
+    with patch.object(ai_engine, "is_available", return_value=True), patch.object(ai_engine, "ask", return_value=generated):
+        api_answer = student.post("/api/v1/ai/ask", json={
+            "question": "Explain how feedback control improves system stability.",
+            "module_id": module_id,
+            "mode": "explain",
+        })
+    expect(api_answer, 200, "academic AI API workflow")
+    with app.app_context():
+        events = LearningEvent.query.filter_by(
+            event_type="academic_ai_question", qualifies_for_streak=True
+        ).all()
+        if len(events) != api_event_count + 1:
+            raise AssertionError("genuine academic API question did not qualify the streak")
+        if any("feedback control improves" in (event.detail or "").lower() for event in events):
+            raise AssertionError("a private AI question leaked into learning analytics")
 
     student.get("/logout")
     lecturer = app.test_client()
@@ -145,12 +175,52 @@ def main():
 
     expect(lecturer.post("/lecturer/workspace", data={"module_id": upload_module_id}), 302, "lecturer workspace selection")
     expect(lecturer.get("/lecturer/dashboard"), 200, "lecturer dashboard")
+    topic_create = lecturer.post(
+        f"/lecturer/module/{upload_module_id}/content",
+        data={
+            "action": "topic",
+            "unit_label": "Lab 1",
+            "category": "practical",
+            "status": "planned",
+            "title": "Category Workflow Verification",
+            "learning_outcome": "Apply the concept during a guided laboratory activity.",
+            "is_published": "on",
+        },
+        follow_redirects=False,
+    )
+    expect(topic_create, 302, "lecturer topic category creation")
+    with app.app_context():
+        categorised_topic = Topic.query.filter_by(
+            module_id=upload_module_id, title="Category Workflow Verification"
+        ).one()
+        categorised_topic_id = categorised_topic.id
+        if categorised_topic.category != "practical" or categorised_topic.category_label != "Practical / Lab":
+            raise AssertionError("topic category did not persist")
+    topic_workspace = lecturer.get(f"/lecturer/module/{upload_module_id}/content")
+    expect(topic_workspace, 200, "lecturer topic category workspace")
+    if b"Practical / Lab" not in topic_workspace.data:
+        raise AssertionError("topic category was not shown in the lecturer workspace")
+    expect(lecturer.post(
+        f"/lecturer/module/{upload_module_id}/topics/{categorised_topic_id}/update",
+        data={
+            "unit_label": "Tutorial 1",
+            "category": "tutorial",
+            "status": "currently_teaching",
+            "title": "Category Workflow Verification",
+            "learning_outcome": "Apply the concept in a guided tutorial.",
+            "is_published": "on",
+        },
+        follow_redirects=False,
+    ), 302, "lecturer topic category update")
+    with app.app_context():
+        if db.session.get(Topic, categorised_topic_id).category != "tutorial":
+            raise AssertionError("updated topic category did not persist")
     expect(lecturer.get(f"/lecturer/upload/module/{upload_module_id}"), 200, "upload form")
     upload = lecturer.post(
         f"/lecturer/upload/module/{upload_module_id}",
         data={
             "title": "Smoke-test lecture note", "description": "Verified upload workflow test.",
-            "resource_type": "notes", "verified": "on",
+            "resource_type": "notes", "topic_id": str(categorised_topic_id), "verified": "on",
             "file": (io.BytesIO(b"Feedback control keeps a system stable."), "smoke-note.txt"),
         },
         content_type="multipart/form-data", follow_redirects=False,
@@ -161,6 +231,8 @@ def main():
         uploaded = Resource.query.filter_by(title="Smoke-test lecture note").one_or_none()
         if uploaded is None or not uploaded.stored_filename or uploaded.text_extraction_status != "success":
             raise AssertionError("uploaded resource was not saved and indexed")
+        if uploaded.topic_id != categorised_topic_id:
+            raise AssertionError("uploaded resource was not placed under its selected topic")
         uploaded_id = uploaded.id
 
         # Pending material belongs to the lecturer workspace only. Verify that
@@ -169,6 +241,10 @@ def main():
         db.session.commit()
     student_again = app.test_client()
     login(student_again, "student")
+    categorised_module = student_again.get(f"/module/{upload_module_id}")
+    expect(categorised_module, 200, "student categorised topic view")
+    if b"Tutorial" not in categorised_module.data or b"Category Workflow Verification" not in categorised_module.data:
+        raise AssertionError("students could not see the topic category and title")
     expect(student_again.get(f"/resource/{uploaded_id}"), 404, "pending resource privacy")
     expect(student_again.get(f"/api/v1/resources/{uploaded_id}"), 404, "pending resource API privacy")
     with app.app_context():
@@ -257,6 +333,10 @@ def main():
     expect(hod.post("/login", data={"identifier": "50000001", "password": "DepartmentHead@123"}, follow_redirects=False), 302, "HOD sign in")
     expect(hod.get("/department"), 200, "HOD dashboard")
     expect(hod.get("/department/lecturer-requests"), 200, "HOD lecturer request list")
+    expect(hod.get("/department/curriculum"), 200, "HOD curriculum workspace")
+    expect(hod.get("/department/lecturers"), 200, "HOD lecturer directory")
+    expect(hod.get("/department/module-claims"), 200, "HOD module claim list")
+    expect(hod.get("/department/audit-log"), 200, "HOD audit log")
     approval = hod.post(f"/department/lecturer-requests/{pending_lecturer.id}/approve", data={
         "module_ids": str(upload_module_id),
     }, follow_redirects=False)
@@ -267,6 +347,175 @@ def main():
             raise AssertionError("HOD approval did not activate lecturer")
         if not LecturerAssignment.query.filter_by(lecturer_id=approved.id, module_id=upload_module_id).first():
             raise AssertionError("HOD approval did not assign selected module")
+
+        current_year = AcademicYear.query.filter_by(
+            department_id=department.id, is_current=True
+        ).one()
+        academic_year_id = current_year.id
+
+    # The HOD publishes a fully identified module without changing historical
+    # semester records.
+    module_create = hod.post("/department/curriculum", data={
+        "action": "module",
+        "academic_year_id": academic_year_id,
+        "programme_id": programme.id,
+        "nta_level_id": level.id,
+        "semester_id": semester.id,
+        "code": "EE-TEST-01",
+        "name": "Academic Workflow Verification",
+        "module_type": "general_studies",
+        "cohort_label": "EE5-QA",
+        "description": "Isolated smoke-test curriculum module.",
+    }, follow_redirects=False)
+    expect(module_create, 302, "HOD module creation")
+    with app.app_context():
+        claimed_module = Module.query.filter_by(code="EE-TEST-01").one()
+        claimed_module_id = claimed_module.id
+        if claimed_module.module_type != "general_studies" or claimed_module.academic_year_id != academic_year_id:
+            raise AssertionError("module code, type or academic-year version did not persist")
+    expect(
+        hod.get(f"/department/curriculum/modules/{claimed_module_id}/edit"),
+        200,
+        "HOD module edit form",
+    )
+    expect(hod.post(
+        f"/department/curriculum/modules/{claimed_module_id}/edit",
+        data={
+            "code": "EE-TEST-01",
+            "name": "Academic Workflow Verification Updated",
+            "module_type": "general_studies",
+            "publication_status": "published",
+            "cohort_label": "EE5-QA",
+            "description": "Updated without replacing its academic-year record.",
+        },
+        follow_redirects=False,
+    ), 302, "HOD module update")
+    with app.app_context():
+        updated_module = db.session.get(Module, claimed_module_id)
+        if updated_module.name != "Academic Workflow Verification Updated" or not updated_module.is_published:
+            raise AssertionError("HOD module update did not preserve a published curriculum record")
+
+    approved_lecturer = app.test_client()
+    expect(approved_lecturer.post("/login", data={
+        "identifier": "14030002", "password": "LecturerTwo@123"
+    }, follow_redirects=False), 302, "approved lecturer sign in")
+    claim_submit = approved_lecturer.post("/lecturer/workspace", data={
+        "action": "claim", "module_id": claimed_module_id,
+    }, follow_redirects=False)
+    expect(claim_submit, 302, "lecturer module claim")
+    with app.app_context():
+        claim = LecturerAssignment.query.filter_by(
+            lecturer_id=pending_lecturer.id, module_id=claimed_module_id
+        ).one()
+        if claim.status != "pending":
+            raise AssertionError("new lecturer claim was not left pending for HOD approval")
+        claim_id = claim.id
+    pending_api_modules = approved_lecturer.get("/api/v1/modules")
+    expect(pending_api_modules, 200, "pending lecturer API scope")
+    if claimed_module_id in {
+        item["id"] for item in pending_api_modules.get_json()["modules"]
+    }:
+        raise AssertionError("pending module claim granted lecturer API access")
+    expect(hod.post(
+        f"/department/module-claims/{claim_id}/approve", follow_redirects=False
+    ), 302, "HOD module claim approval")
+    with app.app_context():
+        if db.session.get(LecturerAssignment, claim_id).status != "approved":
+            raise AssertionError("HOD approval did not activate the module claim")
+    approved_api_modules = approved_lecturer.get("/api/v1/modules")
+    expect(approved_api_modules, 200, "approved lecturer API scope")
+    if claimed_module_id not in {
+        item["id"] for item in approved_api_modules.get_json()["modules"]
+    }:
+        raise AssertionError("approved module claim was missing from lecturer API")
+
+    # Student-to-lecturer questions disclose the question but never the
+    # student's identity. Replies return only to the owning student.
+    private_question_submit = student_again.post("/questions", data={
+        "module_id": claimed_module_id,
+        "lecturer_id": pending_lecturer.id,
+        "subject": "Feedback stability clarification",
+        "body": "Please explain how negative feedback changes stability in this module.",
+    }, follow_redirects=False)
+    expect(private_question_submit, 302, "anonymous lecturer question")
+    with app.app_context():
+        lecturer_question = AcademicQuestion.query.filter_by(
+            module_id=claimed_module_id, lecturer_id=pending_lecturer.id
+        ).one()
+        lecturer_question_id = lecturer_question.id
+        anonymous_ref = lecturer_question.anonymous_ref
+        if not LearningEvent.query.filter_by(
+            student_id=lecturer_question.student_id,
+            event_type="lecturer_question",
+            qualifies_for_streak=True,
+        ).first():
+            raise AssertionError("genuine lecturer question did not qualify the streak")
+        if not Notification.query.filter_by(
+            user_id=pending_lecturer.id, kind="academic_question"
+        ).first():
+            raise AssertionError("lecturer question notification was not created")
+    lecturer_inbox = approved_lecturer.get("/lecturer/questions")
+    expect(lecturer_inbox, 200, "lecturer anonymous question inbox")
+    if anonymous_ref.encode() not in lecturer_inbox.data:
+        raise AssertionError("anonymous question reference was not shown to lecturer")
+    if b"student@dit.ac.tz" in lecturer_inbox.data or b"24030001" in lecturer_inbox.data:
+        raise AssertionError("student identity leaked into lecturer question inbox")
+    expect(approved_lecturer.post(
+        f"/lecturer/questions/{lecturer_question_id}/respond",
+        data={
+            "status": "answered",
+            "answer": "Negative feedback can improve stability margins when the loop is designed correctly.",
+        },
+        follow_redirects=False,
+    ), 302, "lecturer private answer")
+    student_questions = student_again.get("/questions")
+    expect(student_questions, 200, "student private question history")
+    if b"improve stability margins" not in student_questions.data:
+        raise AssertionError("student could not read the lecturer response")
+
+    # Merely opening a resource no longer grants ten minutes. A server-capped
+    # active session must reach the threshold first.
+    study_start = student_again.post(f"/resource/{resource_id}/study/start")
+    expect(study_start, 200, "resource study session start")
+    study_token = study_start.get_json()["token"]
+    with app.app_context():
+        study_session = ResourceStudySession.query.filter_by(token=study_token).one()
+        study_session.active_seconds = 590
+        study_session.last_heartbeat_at = utcnow() - timedelta(seconds=35)
+        db.session.commit()
+    heartbeat = student_again.post(f"/resource/study/{study_token}/heartbeat")
+    expect(heartbeat, 200, "resource study heartbeat")
+    if not heartbeat.get_json().get("qualified"):
+        raise AssertionError("ten active study minutes did not qualify the streak")
+
+    # Deactivation preserves records, blocks both existing and new sessions,
+    # and can be reversed without rebuilding assignments.
+    expect(hod.post(
+        f"/department/lecturers/{pending_lecturer.id}/deactivate",
+        follow_redirects=False,
+    ), 302, "lecturer deactivation")
+    expect(approved_lecturer.get("/lecturer/workspace"), 302, "deactivated existing session guard")
+    blocked_login = app.test_client().post("/login", data={
+        "identifier": "14030002", "password": "LecturerTwo@123"
+    }, follow_redirects=False)
+    expect(blocked_login, 200, "deactivated lecturer login block")
+    expect(hod.post(
+        f"/department/lecturers/{pending_lecturer.id}/reactivate",
+        follow_redirects=False,
+    ), 302, "lecturer reactivation")
+    with app.app_context():
+        if db.session.get(AcademicQuestion, lecturer_question_id) is None:
+            raise AssertionError("deactivation deleted lecturer academic history")
+        if AuditLog.query.count() < 5:
+            raise AssertionError("sensitive HOD and teaching actions were not audited")
+
+    flashcard_html = ai_engine.render_ai_answer(
+        "**Front:** What is negative feedback?\n**Back:** Returning part of the output to oppose the input.\n\n"
+        "**Front:** Write Ohm’s law.\n**Back:** V = I × R",
+        "flashcards",
+    )
+    if "study-flashcard-deck" not in flashcard_html or "data-flashcard-toggle" not in flashcard_html:
+        raise AssertionError("AI flashcards were not rendered as interactive teal cards")
 
     # Conversations remain scoped to the student who owns them.
     generated_private = {**generated, "answer_text": "Private learner answer", "answer_html": "<p>Private learner answer</p>"}
@@ -284,7 +533,7 @@ def main():
         raise AssertionError("one student could read another student's AI conversation")
 
     TEST_UPLOADS.cleanup()
-    print("PASS: 40 core student, lecturer, HOD, profile, AI, API, upload and health checks")
+    print("PASS: 75 student, lecturer, HOD, curriculum, topic-category, privacy, streak, AI, security and notification checks")
 
 
 if __name__ == "__main__":

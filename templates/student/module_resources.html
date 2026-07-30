@@ -1,72 +1,36 @@
 {% extends "base.html" %}
 {% import "partials/icons.html" as icons %}
 {% import "partials/resource_card.html" as rc %}
-{% block title %}{{ module.name }} — {{ app_name }}{% endblock %}
+{% block title %}{{ module.code or module.name }} | {{ app_name }}{% endblock %}
 {% block content %}
 <div class="container fade-in">
   {% include "partials/breadcrumb.html" %}
-
-  <div class="page-header">
-    <span class="page-header__eyebrow">{{ programme.name }} &middot; {{ level.label }} &middot; {{ semester.label }}</span>
-    <h1>{{ module.name }}</h1>
-    {% if module.description %}<p>{{ module.description }}</p>{% endif %}
-    <div class="context-pills">
-      <span class="context-pill">{{ icons.icon('grid', size=13) }} {{ department.name }}</span>
-      <span class="context-pill">{{ icons.icon('bookmark', size=13) }} {{ programme.name }}</span>
-      <span class="context-pill">{{ icons.icon('layers', size=13) }} {{ level.label }}</span>
-      <span class="context-pill">{{ icons.icon('folder', size=13) }} {{ semester.label }}</span>
-    </div>
-    <div class="hero-actions">
-      <a href="{{ url_for('ai.assistant', module_id=module.id) }}" class="btn btn-primary">
-        {{ icons.icon('sparkles', size=16) }} Ask DIT AI about {{ module.name }}
-      </a>
-    </div>
+  <div class="module-identity-hero">
+    <div><div class="context-pills"><span class="badge badge-teal">{{ module.code or 'Code pending' }}</span><span class="badge badge-neutral">{{ module.type_label }}</span><span class="context-pill">{{ module.academic_year.label if module.academic_year else 'Legacy curriculum' }}</span></div><h1>{{ module.name }}</h1>{% if module.description %}<p>{{ module.description }}</p>{% endif %}<div class="module-meta-line">{{ programme.name }} · {{ level.label }} · {{ semester.label }}{% if module.cohort_label %} · {{ module.cohort_label }}{% endif %}</div></div>
+    <div class="hero-actions"><a href="{{ url_for('student.questions') }}" class="btn btn-secondary">{{ icons.icon('help-circle', size=16) }} Ask lecturer</a><a href="{{ url_for('ai.assistant', module_id=module.id) }}" class="btn btn-primary">{{ icons.icon('sparkles', size=16) }} Study with DIT AI</a></div>
   </div>
 
   {% if topics %}
-  <section class="card module-learning-path">
-    <div class="module-learning-path__intro">
-      <span class="section-kicker">Module learning path</span>
-      <h2>Build confidence one topic at a time</h2>
-      <p>Follow the sequence below, then use DIT AI to practise, revise, and check your understanding.</p>
-    </div>
-    <ol class="module-learning-path__steps">
-      {% for topic in topics %}
-      <li>
-        <span class="module-learning-path__number">{{ loop.index }}</span>
-        <div>
-          <small>{{ topic.unit_label or 'Curriculum topic' }}</small>
-          <strong>{{ topic.title }}</strong>
-          {% if topic.learning_outcome or topic.description %}<p>{{ topic.learning_outcome or topic.description }}</p>{% endif %}
-        </div>
-      </li>
-      {% endfor %}
-    </ol>
-  </section>
+  <nav class="topic-jumpbar" aria-label="Module topics"><span>Topics</span>{% for topic in topics %}<a href="#topic-{{ topic.id }}">{{ topic.unit_label or loop.index }} · {{ topic.title }}</a>{% endfor %}</nav>
   {% endif %}
 
-  {% if total_count == 0 %}
-  <div class="card empty-state">
-    <span class="empty-state__icon">{{ icons.icon('folder', size=32) }}</span>
-    <h3>No resources yet for this module</h3>
-    <p>Your lecturer hasn't published any materials here yet. Check back soon, or ask the
-      DIT AI Learning Assistant for general guidance in the meantime.</p>
-    <a href="{{ url_for('ai.assistant', module_id=module.id) }}" class="btn btn-secondary">Ask DIT AI</a>
-  </div>
+  {% if total_count == 0 and not topics %}
+  <div class="card empty-state"><span class="empty-state__icon">{{ icons.icon('folder', size=32) }}</span><h3>Content coming soon</h3><p>No topics or resources are published yet.</p><a href="{{ url_for('ai.assistant', module_id=module.id) }}" class="btn btn-secondary">Ask DIT AI</a></div>
   {% else %}
-    {% for category_label, items in grouped.items() %}
-    <div class="category-block">
-      <div class="category-block__title">
-        <h3 class="mb-0">{{ category_label }}</h3>
-        <span class="category-block__count">{{ items|length }}</span>
-      </div>
-      <div class="resource-grid">
-        {% for resource in items %}
-          {{ rc.resource_card(resource) }}
-        {% endfor %}
-      </div>
-    </div>
+  <div class="topic-catalog">
+    {% for group in topic_groups %}
+    <section class="topic-section" id="topic-{{ group.topic.id }}">
+      <header class="topic-section__header"><div><span class="topic-index">{{ '%02d'|format(loop.index) }}</span><div><div class="topic-heading-meta"><span class="topic-category topic-category--{{ group.topic.category }}">{{ group.topic.category_label }}</span><span>{{ group.topic.unit_label or 'Topic' }} · {{ group.topic.status|replace('_', ' ')|title }}</span></div><h2>{{ group.topic.title }}</h2>{% if group.topic.learning_outcome or group.topic.description %}<p>{{ group.topic.learning_outcome or group.topic.description }}</p>{% endif %}</div></div><a class="btn btn-ghost btn-sm" href="{{ url_for('ai.assistant', module_id=module.id, mode='explain') }}">Ask DIT AI</a></header>
+      {% if group.albums %}
+      <div class="album-grid">{% for category_label, items in group.albums.items() %}<article class="resource-album"><div class="resource-album__header"><span class="resource-album__icon">{{ icons.icon('folder', size=20) }}</span><div><h3>{{ category_label }}</h3><small>{{ items|length }} item{{ '' if items|length == 1 else 's' }}</small></div></div><div class="resource-album__items">{% for resource in items %}{{ rc.resource_card(resource) }}{% endfor %}</div></article>{% endfor %}</div>
+      {% else %}<div class="topic-empty">No resources for this topic yet.</div>{% endif %}
+    </section>
     {% endfor %}
+
+    {% if unassigned_albums %}
+    <section class="topic-section topic-section--general"><header class="topic-section__header"><div><span class="topic-index">+</span><div><span class="section-kicker">Module-wide</span><h2>General resources</h2></div></div></header><div class="album-grid">{% for category_label, items in unassigned_albums.items() %}<article class="resource-album"><div class="resource-album__header"><span class="resource-album__icon">{{ icons.icon('folder', size=20) }}</span><div><h3>{{ category_label }}</h3><small>{{ items|length }} item{{ '' if items|length == 1 else 's' }}</small></div></div><div class="resource-album__items">{% for resource in items %}{{ rc.resource_card(resource) }}{% endfor %}</div></article>{% endfor %}</div></section>
+    {% endif %}
+  </div>
   {% endif %}
 </div>
 {% endblock %}

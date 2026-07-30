@@ -1,37 +1,22 @@
 {% extends "base.html" %}
 {% import "partials/icons.html" as icons %}
-{% block title %}Select teaching workspace | {{ app_name }}{% endblock %}
+{% block title %}Teaching modules | {{ app_name }}{% endblock %}
 {% block content %}
-<div class="container container-narrow fade-in">
-  <div class="page-header page-header--compact">
-    <span class="page-header__eyebrow">Lecturer onboarding</span>
-    <h1>Open your teaching workspace</h1>
-    <p>Confirm the academic context for the module you teach. Your dashboard, students, analytics and content are scoped to this selection.</p>
+<div class="container fade-in">
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">Lecturer workspace</span><h1>Your modules</h1><p>Open an approved module or request access to another.</p></div><a class="btn btn-secondary" href="{{ url_for('lecturer.questions') }}">Student questions</a></div>
+  <div class="workspace-grid">
+    <section class="card card-pad">
+      <div class="section-header"><div><span class="section-kicker">Approved</span><h2>Open module</h2></div><span class="badge badge-teal">{{ assignments|length }}</span></div>
+      {% if assignments %}
+      <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="form-group"><label class="form-label" for="module_id">Approved module</label><select class="form-select" id="module_id" name="module_id" required><option value="">Select module</option>{% for assignment in assignments %}<option value="{{ assignment.module.id }}">{{ assignment.module.code or 'Code pending' }} · {{ assignment.module.name }} · {{ assignment.module.academic_year.label if assignment.module.academic_year else 'Legacy' }}</option>{% endfor %}</select></div><button class="btn btn-primary">Open teaching dashboard {{ icons.icon('arrow-right', size=16) }}</button></form>
+      <div class="approved-module-list mt-6">{% for assignment in assignments %}<article class="module-claim-summary"><span class="badge badge-teal">Approved</span><div><strong>{{ assignment.module.code or 'Code pending' }} · {{ assignment.module.name }}</strong><small>{{ assignment.module.type_label }} · {{ assignment.module.semester.nta_level.label }} · {{ assignment.module.semester.label }}</small></div></article>{% endfor %}</div>
+      {% else %}<div class="empty-state"><h3>No approved module</h3><p>Request access from the published curriculum.</p></div>{% endif %}
+    </section>
+    <section class="card card-pad">
+      <div class="section-header"><div><span class="section-kicker">Module claim</span><h2>Request access</h2></div></div>
+      {% if available_modules %}<form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="claim"><div class="form-group"><label class="form-label" for="claim_module_id">Published module</label><select class="form-select" id="claim_module_id" name="module_id" required><option value="">Choose a module</option>{% for module in available_modules %}<option value="{{ module.id }}">{{ module.code or 'Code pending' }} · {{ module.name }} · {{ module.academic_year.label if module.academic_year else 'Legacy' }}</option>{% endfor %}</select></div><button class="btn btn-secondary">Send claim to HOD</button></form>{% else %}<p class="text-muted">You have already claimed every available module in your department.</p>{% endif %}
+      <div class="claim-history mt-6"><span class="section-kicker">Claim history</span>{% for claim in claims if claim.status != 'approved' %}<article class="module-claim-summary"><span class="badge badge-{{ 'warning' if claim.status == 'pending' else 'neutral' }}">{{ claim.status|title }}</span><div><strong>{{ claim.module.code or 'Code pending' }} · {{ claim.module.name }}</strong><small>{% if claim.rejection_reason %}{{ claim.rejection_reason }}{% else %}Submitted {{ claim.created_at.strftime('%d %b %Y') }}{% endif %}</small></div></article>{% else %}<p class="text-muted">No pending or rejected claims.</p>{% endfor %}</div>
+    </section>
   </div>
-  <form class="card card-pad context-workflow" method="POST">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <ol class="workflow-steps" aria-label="Teaching context selection steps">
-      <li><span>1</span><div><small>Department</small><strong>Electrical Engineering</strong></div></li>
-      <li><span>2</span><div><small>Academic level</small><strong>NTA Level 5</strong></div></li>
-      <li><span>3</span><div><small>Programme</small><strong>Electrical Engineering</strong></div></li>
-      <li><span>4</span><div><small>Semester</small><strong>Semester 2</strong></div></li>
-      <li class="workflow-steps__current"><span>5</span><div><small>Assigned module</small><strong>Select your module</strong></div></li>
-    </ol>
-    <div class="form-group">
-      <label class="form-label" for="module_id">Module</label>
-      <select class="form-select" id="module_id" name="module_id" required>
-        <option value="">Select an assigned module</option>
-        {% for assignment in assignments %}
-        <option value="{{ assignment.module.id }}">{{ assignment.module.name }}</option>
-        {% endfor %}
-      </select>
-      <p class="form-hint">Only modules assigned to your account can be opened.</p>
-    </div>
-    {% if assignments %}
-    <button class="btn btn-primary btn-lg" type="submit">Open module dashboard {{ icons.icon('arrow-right', size=17) }}</button>
-    {% else %}
-    <div class="empty-state"><h3>No module assignment</h3><p>Your account has no active teaching assignment yet. Contact the academic administrator for access.</p></div>
-    {% endif %}
-  </form>
 </div>
 {% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Curriculum management | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ department.name }}</span><h1>Curriculum</h1><p>Add modules by academic year, programme, NTA level and semester.</p></div><a class="btn btn-secondary" href="{{ url_for('department.audit_log') }}">Audit log</a></div>
+
+  <div class="curriculum-admin-grid">
+    <section class="card card-pad">
+      <div class="section-header"><div><span class="section-kicker">Curriculum edition</span><h2>Academic years</h2></div></div>
+      <div class="year-list">{% for year in academic_years %}<div class="year-row"><div><strong>{{ year.label }}</strong><small>{{ 'Current academic year' if year.is_current else year.status|title }}</small></div>{% if not year.is_current %}<form method="POST" action="{{ url_for('department.set_current_year', year_id=year.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-ghost btn-sm">Make current</button></form>{% else %}<span class="badge badge-teal">Current</span>{% endif %}</div>{% else %}<p>No academic year has been created.</p>{% endfor %}</div>
+      <details class="inline-editor mt-4"><summary>{{ icons.icon('plus', size=15) }} Add academic year</summary><form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="academic_year"><div class="form-group"><label class="form-label" for="year-label">Academic year</label><input class="form-input" id="year-label" name="label" pattern="\d{4}/\d{4}" placeholder="2026/2027" required></div><label class="form-check"><input type="checkbox" name="is_current"> Make this the current year</label><button class="btn btn-primary btn-sm mt-4">Create academic year</button></form></details>
+    </section>
+
+    <section class="card card-pad curriculum-builder">
+      <div class="section-header"><div><span class="section-kicker">Semester planning</span><h2>Add curriculum module</h2></div></div>
+      <form method="POST" data-curriculum-form><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="module">
+        <div class="form-grid form-grid--two">
+          <div class="form-group"><label class="form-label" for="academic_year_id">Academic year</label><select class="form-select" id="academic_year_id" name="academic_year_id" required><option value="">Select year</option>{% for year in academic_years if year.status == 'active' %}<option value="{{ year.id }}" {{ 'selected' if year.is_current }}>{{ year.label }}{{ ' · Current' if year.is_current }}</option>{% endfor %}</select></div>
+          <div class="form-group"><label class="form-label" for="programme_id">Programme</label><select class="form-select" id="programme_id" name="programme_id" data-programme required><option value="">Select programme</option>{% for programme in programmes %}<option value="{{ programme.id }}">{{ programme.name }}</option>{% endfor %}</select></div>
+          <div class="form-group"><label class="form-label" for="nta_level_id">NTA level</label><select class="form-select" id="nta_level_id" name="nta_level_id" data-level required><option value="">Select level</option>{% for programme in programmes %}{% for level in programme.nta_levels %}<option value="{{ level.id }}" data-programme-id="{{ programme.id }}">{{ level.label }}</option>{% endfor %}{% endfor %}</select></div>
+          <div class="form-group"><label class="form-label" for="semester_id">Semester</label><select class="form-select" id="semester_id" name="semester_id" data-semester required><option value="">Select semester</option>{% for programme in programmes %}{% for level in programme.nta_levels %}{% for semester in level.semesters %}<option value="{{ semester.id }}" data-level-id="{{ level.id }}">{{ semester.label }}</option>{% endfor %}{% endfor %}{% endfor %}</select></div>
+          <div class="form-group"><label class="form-label" for="module-code">Module code</label><input class="form-input" id="module-code" name="code" maxlength="30" placeholder="e.g. EE 05214" required></div>
+          <div class="form-group"><label class="form-label" for="module-type">Module type</label><select class="form-select" id="module-type" name="module_type" required><option value="">Select type</option>{% for key, label in module_types %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+        </div>
+        <div class="form-group"><label class="form-label" for="module-name">Module name</label><input class="form-input" id="module-name" name="name" maxlength="200" required></div>
+        <div class="form-grid form-grid--two"><div class="form-group"><label class="form-label" for="cohort-label">Class or cohort</label><input class="form-input" id="cohort-label" name="cohort_label" maxlength="80" placeholder="Optional, e.g. EE5-2026"></div><div class="form-group"><label class="form-label" for="module-description">Short description</label><textarea class="form-textarea" id="module-description" name="description" rows="2"></textarea></div></div>
+        <button class="btn btn-primary">Publish module</button>
+      </form>
+    </section>
+  </div>
+
+  <section class="card card-pad mt-6">
+    <div class="section-header"><div><span class="section-kicker">Published structure</span><h2>Curriculum modules</h2></div><span class="badge badge-teal">{{ modules|length }}</span></div>
+    <div class="responsive-table"><table class="data-table"><thead><tr><th>Module</th><th>Academic context</th><th>Type</th><th>Status</th><th></th></tr></thead><tbody>{% for module in modules %}<tr><td><strong>{{ module.code or 'Code pending' }}</strong><span>{{ module.name }}</span></td><td>{{ module.academic_year.label if module.academic_year else 'Legacy' }}<small>{{ module.semester.nta_level.programme.name }} · {{ module.semester.nta_level.label }} · {{ module.semester.label }}{% if module.cohort_label %} · {{ module.cohort_label }}{% endif %}</small></td><td><span class="badge badge-neutral">{{ module.type_label }}</span></td><td><span class="status-chip status-chip--{{ 'success' if module.is_published else 'muted' }}">{{ module.publication_status|title }}</span></td><td><div class="table-actions"><a class="btn btn-ghost btn-sm" href="{{ url_for('department.edit_module', module_id=module.id) }}">Edit</a>{% if module.is_published %}<form method="POST" action="{{ url_for('department.archive_module', module_id=module.id) }}" data-confirm="Archive this module? Its history and resources will remain preserved."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-ghost btn-sm">Archive</button></form>{% endif %}</div></td></tr>{% else %}<tr><td colspan="5">No modules have been published.</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+</div>
+{% endblock %}

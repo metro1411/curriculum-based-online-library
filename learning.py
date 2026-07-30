@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from extensions import db
 from models import (
     LearningEvent, ResourceView, Topic, AIAnswerFeedback, AIMessage, AIConversation,
-    Resource, User, Module, Semester, NtaLevel, Programme,
+    AcademicQuestion, Resource, User, Module, Semester, NtaLevel, Programme,
 )
 
 
@@ -22,7 +22,7 @@ def utcnow():
 
 
 def record_learning_event(student_id, module_id, event_type, *, topic_id=None,
-                          duration_minutes=0, detail=None):
+                          duration_minutes=0, detail=None, qualifies_for_streak=False):
     """Store one intentional learning action.  Callers commit with their action."""
     if not student_id or not module_id:
         return None
@@ -33,6 +33,7 @@ def record_learning_event(student_id, module_id, event_type, *, topic_id=None,
         event_type=event_type,
         duration_minutes=max(0, int(duration_minutes or 0)),
         detail=(detail or "")[:240] or None,
+        qualifies_for_streak=bool(qualifies_for_streak),
     )
     db.session.add(event)
     return event
@@ -58,8 +59,11 @@ def student_insights(student_id, module):
              .all())
     topics = Topic.query.filter_by(module_id=module.id).order_by(Topic.display_order).all()
     topic_counts = Counter(e.topic_id for e in events if e.topic_id)
-    question_count = sum(1 for e in events if e.event_type == "ai_question")
-    days = {_day_key(e.created_at) for e in events}
+    question_count = sum(
+        1 for e in events
+        if e.event_type in {"academic_ai_question", "lecturer_question"}
+    )
+    days = {_day_key(e.created_at) for e in events if e.qualifies_for_streak}
 
     # Build a compact 28-day timeline and a four-week heat map row.
     daily = Counter(_day_key(e.created_at) for e in recent)
@@ -97,8 +101,11 @@ def student_insights(student_id, module):
     weak_topics = sorted(topic_progress, key=lambda item: (item["actions"], item["topic"].display_order))[:2]
     next_topic = next((item for item in topic_progress if item["percent"] < 100), None)
     activity_counts = {
-        "study": sum(1 for event in recent if event.event_type in {"resource_study", "topic_study"}),
-        "ai": sum(1 for event in recent if event.event_type == "ai_question"),
+        "study": sum(
+            1 for event in recent
+            if event.event_type in {"resource_study_qualified", "topic_study"}
+        ),
+        "ai": sum(1 for event in recent if event.event_type == "academic_ai_question"),
         "downloads": sum(1 for event in recent if event.event_type == "resource_download"),
     }
     activity_total = sum(activity_counts.values())
@@ -133,7 +140,7 @@ def student_insights(student_id, module):
     }
 
 
-def lecturer_insights(module, *, days=30):
+def lecturer_insights(module, *, lecturer_id=None, days=30):
     """Aggregate module learning activity for a lecturer's assigned workspace."""
     since = utcnow() - timedelta(days=days - 1)
     events = (LearningEvent.query.filter(
@@ -174,9 +181,17 @@ def lecturer_insights(module, *, days=30):
     topic_rows = [{"topic": topic, "actions": topic_events.get(topic.id, 0)} for topic in topics]
     most_studied = sorted(topic_rows, key=lambda x: x["actions"], reverse=True)[:4]
     least_studied = sorted(topic_rows, key=lambda x: x["actions"])[:4]
-    question_events = [e for e in all_events if e.event_type == "ai_question"]
-    questions = Counter((e.detail or "Uncategorised question") for e in question_events)
-    repeated_questions = questions.most_common(4)
+    # Exact AI prompts are private to the student. Lecturer-facing patterns
+    # come only from questions deliberately submitted to that lecturer.
+    question_query = AcademicQuestion.query.filter_by(module_id=module.id)
+    if lecturer_id:
+        question_query = question_query.filter_by(lecturer_id=lecturer_id)
+    private_questions = question_query.all()
+    question_topics = Counter(
+        question.topic.title if question.topic else question.subject
+        for question in private_questions
+    )
+    repeated_questions = question_topics.most_common(4)
     enrolled = len(enrolled_ids) or len(student_ids)
     at_risk = max(0, enrolled - len(active_ids))
     resources_total = Resource.query.filter_by(module_id=module.id).count()
@@ -208,7 +223,7 @@ def lecturer_insights(module, *, days=30):
         "resource_adoption": round((resources_opened / resources_total) * 100) if resources_total else 0,
         "active_days": active_days,
         "topic_coverage": round((len({event.topic_id for event in all_events if event.topic_id}) / len(topics)) * 100) if topics else 0,
-        "questions": len(question_events),
+        "questions": len(private_questions),
         "average_rating": round(sum(ratings) / len(ratings), 1) if ratings else None,
         "unclear_answers": sum(1 for row in feedback_rows if row.is_unclear),
         "timeline": timeline,
@@ -231,8 +246,21 @@ def personal_recommendations(student):
     if not student or not student.programme_id:
         return []
     programme_modules = (Module.query.join(Semester).join(NtaLevel)
-                         .filter(NtaLevel.programme_id == student.programme_id)
+                         .filter(
+                             NtaLevel.programme_id == student.programme_id,
+                             Module.is_active.is_(True),
+                             Module.publication_status == "published",
+                         )
                          .order_by(Module.display_order).all())
+    programme_modules = [
+        module for module in programme_modules
+        if (not student.semester_id or module.semester_id == student.semester_id)
+        and (
+            not student.academic_year_id
+            or not module.academic_year_id
+            or module.academic_year_id == student.academic_year_id
+        )
+    ]
     if not programme_modules:
         return []
     viewed_ids = {
@@ -268,7 +296,7 @@ def personal_recommendations(student):
 def student_profile_summary(student):
     """Personal, non-competitive streak and achievement signals for a learner."""
     events = LearningEvent.query.filter_by(student_id=student.id).order_by(LearningEvent.created_at.asc()).all()
-    days = sorted({_day_key(event.created_at) for event in events})
+    days = sorted({_day_key(event.created_at) for event in events if event.qualifies_for_streak})
     day_set = set(days)
     today = utcnow().date()
     streak = 0
@@ -288,7 +316,7 @@ def student_profile_summary(student):
         longest = max(longest, run)
         previous = day
     viewed = len({row.resource_id for row in ResourceView.query.filter_by(student_id=student.id).all()})
-    ai_questions = sum(1 for event in events if event.event_type == "ai_question")
+    ai_questions = sum(1 for event in events if event.event_type == "academic_ai_question")
     achievements = []
     if viewed >= 1:
         achievements.append({"title": "Learning Explorer", "detail": "Opened your first verified learning resource."})
@@ -320,10 +348,14 @@ def department_insights(department_id, *, days=30):
     active_students = {event.student_id for event in recent_events}
     risk_students = [student for student in students if student.id not in active_students]
     resources = Resource.query.filter(Resource.module_id.in_(module_ids or [-1])).all()
-    question_events = [event for event in recent_events if event.event_type == "ai_question"]
+    academic_questions = AcademicQuestion.query.filter(
+        AcademicQuestion.module_id.in_(module_ids or [-1])
+    ).all()
     difficult_topics = Counter()
-    for event in question_events:
-        difficult_topics[event.detail or "General AI support"] += 1
+    for question in academic_questions:
+        difficult_topics[
+            question.topic.title if question.topic else question.subject
+        ] += 1
     return {
         "students": len(students),
         "lecturers": len(lecturers),
@@ -332,7 +364,7 @@ def department_insights(department_id, *, days=30):
         "at_risk_names": [student.full_name for student in risk_students[:5]],
         "resources": len(resources),
         "verified_resources": sum(1 for resource in resources if resource.is_verified),
-        "ai_questions": len(question_events),
+        "academic_questions": len(academic_questions),
         "study_minutes": sum(event.duration_minutes for event in recent_events),
         "difficult_topics": difficult_topics.most_common(5),
     }

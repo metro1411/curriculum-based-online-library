@@ -7,6 +7,7 @@
   <form method="POST" enctype="multipart/form-data" class="card card-pad"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-group"><label class="form-label" for="title">Resource title <span style="color:var(--error);">*</span></label><input class="form-input" id="title" name="title" type="text" required maxlength="250" placeholder="e.g. Feedback systems lecture notes"></div>
     <div class="form-group"><label class="form-label" for="description">Description</label><textarea class="form-textarea" id="description" name="description" maxlength="1000" placeholder="Describe the learning purpose and content covered."></textarea></div>
+    <div class="form-group"><label class="form-label" for="topic_id">Topic</label><select class="form-select" id="topic_id" name="topic_id"><option value="">General module resource</option>{% for topic in topics %}<option value="{{ topic.id }}">{{ topic.category_label }} · {{ topic.unit_label or 'Topic' }} · {{ topic.title }}</option>{% endfor %}</select><p class="form-hint">The resource will appear inside this topic’s album.</p></div>
     <div class="form-group"><label class="form-label">Resource type</label><div class="type-pill-group">{% for key, label in resource_types %}<label class="type-pill"><input type="radio" name="resource_type" value="{{ key }}" {{ 'checked' if key == 'notes' }}><span>{{ label }}</span></label>{% endfor %}</div></div>
     <hr style="border: none; border-top: 1px solid var(--border-color); margin: 24px 0;">
     <div class="form-group"><label class="form-label">Upload a file</label><label class="form-file-drop" tabindex="0">{{ icons.icon('upload', size=26) }}<p class="mb-0 mt-4" style="font-weight:650;">Click to browse, or drag a file here</p><p class="text-muted mb-0" style="font-size:0.8rem;">PDF, DOCX, PPTX, TXT, MD, MP4 or WEBM · up to 30 MB</p><div data-filename style="display:none;"></div><input type="file" name="file" accept=".pdf,.docx,.pptx,.txt,.md,.mp4,.webm"></label></div>
@@ -14,6 +15,5 @@
     <div class="form-group form-check"><input type="checkbox" id="verified" name="verified"><label for="verified" class="mb-0">Mark as approved learning material</label></div>
     <div class="flex gap-3 mt-6"><button type="submit" class="btn btn-primary btn-lg">{{ icons.icon('upload', size=17) }} Publish resource</button><a href="{{ url_for('lecturer.dashboard') }}" class="btn btn-ghost btn-lg">Cancel</a></div>
   </form>
-  <div class="content-governance-note mt-6">New material is published to the selected module knowledge base and becomes available to students and the module AI context.</div>
 </div>
 {% endblock %}

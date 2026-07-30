@@ -183,6 +183,21 @@
     function decorateCodeBlocks(scope) {
       scope.querySelectorAll("pre").forEach(function (pre) {
         if (pre.querySelector("[data-copy-code]")) return;
+        var code = pre.querySelector("code");
+        var language = "Code";
+        if (code) {
+          Array.from(code.classList).some(function (name) {
+            if (name.indexOf("language-") === 0) {
+              language = name.replace("language-", "").toUpperCase();
+              return true;
+            }
+            return false;
+          });
+        }
+        var label = document.createElement("span");
+        label.className = "code-language";
+        label.textContent = language;
+        pre.appendChild(label);
         var button = document.createElement("button");
         button.type = "button"; button.className = "code-copy"; button.dataset.copyCode = ""; button.textContent = "Copy code";
         pre.appendChild(button);
@@ -281,7 +296,7 @@
       var followup = event.target.closest("[data-followup]"); if (followup) { sendMessage(followup.dataset.followup); return; }
       var feedback = event.target.closest("[data-ai-feedback] button"); if (feedback) { var group = feedback.closest("[data-ai-feedback]"); sendFeedback(group, feedback.dataset.rating ? Number(feedback.dataset.rating) : null, feedback.dataset.unclear === "true"); return; }
       var copy = event.target.closest("[data-copy-answer]"); if (copy) { var answer = copy.closest("[data-assistant-turn]").querySelector(".chat-bubble--assistant"); copyText(answer.innerText).then(function () { window.showToast("Response copied.", "success"); }); return; }
-      var copyCode = event.target.closest("[data-copy-code]"); if (copyCode) { copyText(copyCode.closest("pre").innerText.replace("Copy code", "")).then(function () { copyCode.textContent = "Copied"; setTimeout(function () { copyCode.textContent = "Copy code"; }, 1400); }); return; }
+      var copyCode = event.target.closest("[data-copy-code]"); if (copyCode) { var code = copyCode.closest("pre").querySelector("code"); copyText(code ? code.textContent : copyCode.closest("pre").innerText.replace("Copy code", "")).then(function () { copyCode.textContent = "Copied"; setTimeout(function () { copyCode.textContent = "Copy code"; }, 1400); }); return; }
       var regenerateButton = event.target.closest("[data-regenerate]"); if (regenerateButton) { regenerate(regenerateButton.closest("[data-assistant-turn]")); return; }
       var rename = event.target.closest("[data-rename-conversation]"); if (rename) { renameConversation(rename); }
     });
@@ -295,5 +310,126 @@
     scrollToBottom();
   }
 
-  document.addEventListener("DOMContentLoaded", function () { initTheme(); initMobileNav(); initToasts(); initConfirmModals(); initFileDrops(); initQuickSearch(); initAIAssistant(); });
+  function filterSelectOptions(select, attribute, value) {
+    if (!select) return;
+    Array.from(select.options).forEach(function (option, index) {
+      if (index === 0) { option.hidden = false; option.disabled = false; return; }
+      var visible = String(option.dataset[attribute] || "") === String(value || "");
+      option.hidden = !visible;
+      option.disabled = !visible;
+    });
+    if (select.selectedOptions[0] && select.selectedOptions[0].disabled) select.value = "";
+  }
+
+  function initCurriculumForm() {
+    var form = document.querySelector("[data-curriculum-form]");
+    if (!form) return;
+    var programme = form.querySelector("[data-programme]");
+    var level = form.querySelector("[data-level]");
+    var semester = form.querySelector("[data-semester]");
+    function programmeChanged() {
+      filterSelectOptions(level, "programmeId", programme.value);
+      level.value = "";
+      filterSelectOptions(semester, "levelId", "");
+      semester.value = "";
+    }
+    function levelChanged() {
+      filterSelectOptions(semester, "levelId", level.value);
+      semester.value = "";
+    }
+    programme.addEventListener("change", programmeChanged);
+    level.addEventListener("change", levelChanged);
+    programmeChanged();
+  }
+
+  function initQuestionForm() {
+    var form = document.querySelector("[data-question-form]");
+    if (!form) return;
+    var module = form.querySelector("[data-question-module]");
+    var topic = form.querySelector("[data-question-topic]");
+    var lecturer = form.querySelector("[data-question-lecturer]");
+    function changed() {
+      filterSelectOptions(topic, "moduleId", module.value);
+      filterSelectOptions(lecturer, "moduleId", module.value);
+      topic.value = "";
+      lecturer.value = "";
+      var availableLecturers = Array.from(lecturer.options).filter(function (option, index) {
+        return index > 0 && !option.disabled;
+      });
+      if (availableLecturers.length === 1) lecturer.value = availableLecturers[0].value;
+    }
+    module.addEventListener("change", changed);
+    changed();
+  }
+
+  function initFlashcards() {
+    document.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-flashcard-toggle]");
+      if (!button) return;
+      var card = button.closest("[data-flashcard]");
+      var flipped = card.classList.toggle("is-flipped");
+      button.setAttribute("aria-expanded", flipped ? "true" : "false");
+    });
+  }
+
+  function initStudyTracker() {
+    var root = document.querySelector("[data-study-root]");
+    if (!root) return;
+    var status = root.querySelector("[data-study-status]");
+    var detail = root.querySelector("[data-study-detail]");
+    var bar = root.querySelector("[data-study-bar]");
+    var token = null;
+    var qualified = false;
+    var lastActivity = Date.now();
+    ["pointerdown", "keydown", "scroll", "touchstart"].forEach(function (name) {
+      document.addEventListener(name, function () { lastActivity = Date.now(); }, { passive: true });
+    });
+    function update(seconds, isQualified) {
+      var percent = Math.min(100, Math.round((seconds / 600) * 100));
+      if (bar) bar.style.width = percent + "%";
+      if (isQualified) {
+        qualified = true;
+        if (status) status.textContent = "Focused study complete";
+        if (detail) detail.textContent = "This 10-minute session qualifies today’s learning streak.";
+        root.querySelector("[data-study-progress]").classList.add("is-qualified");
+      } else {
+        if (status) status.textContent = "Focused study in progress · " + Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
+        if (detail) detail.textContent = "Stay on this resource and interact naturally. Idle or background time is not counted.";
+      }
+    }
+    fetch(root.dataset.studyStartUrl, {
+      method: "POST",
+      headers: { "X-CSRFToken": csrfToken() }
+    }).then(function (response) { return response.json(); }).then(function (data) {
+      if (!data.ok) return;
+      token = data.token;
+      update(data.active_seconds || 0, data.qualified);
+    }).catch(function () {
+      if (status) status.textContent = "Study timer unavailable";
+      if (detail) detail.textContent = "You can continue reading; activity tracking will retry on your next resource.";
+    });
+    window.setInterval(function () {
+      if (!token || qualified || document.hidden || !document.hasFocus() || Date.now() - lastActivity > 90000) return;
+      var endpoint = root.dataset.studyHeartbeatTemplate.replace("STUDY_TOKEN", encodeURIComponent(token));
+      fetch(endpoint, { method: "POST", headers: { "X-CSRFToken": csrfToken() } })
+        .then(function (response) { return response.json(); })
+        .then(function (data) { if (data.ok) update(data.active_seconds || 0, data.qualified); });
+    }, 30000);
+  }
+
+  function initDeclarativeActions() {
+    document.querySelectorAll("[data-submit-on-change]").forEach(function (control) {
+      control.addEventListener("change", function () {
+        if (control.form) control.form.requestSubmit();
+      });
+    });
+    document.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-submit-form]");
+      if (!button) return;
+      var form = document.getElementById(button.dataset.submitForm);
+      if (form) form.requestSubmit();
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () { initTheme(); initMobileNav(); initToasts(); initConfirmModals(); initFileDrops(); initQuickSearch(); initAIAssistant(); initCurriculumForm(); initQuestionForm(); initFlashcards(); initStudyTracker(); initDeclarativeActions(); });
 })();

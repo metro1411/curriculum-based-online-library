@@ -12,13 +12,14 @@
 
   <div class="entity-grid">
     {% for module in modules %}
-    <a class="entity-card" href="{{ url_for('student.module_resources', module_id=module.id) }}">
+    <a class="entity-card module-card" href="{{ url_for('student.module_resources', module_id=module.id) }}">
       <div class="entity-card__top">
         <span class="entity-card__icon">{{ icons.icon('book-open', size=20) }}</span>
-        <span class="badge badge-neutral">{{ resource_counts.get(module.id, 0) }} resource{{ 's' if resource_counts.get(module.id, 0) != 1 else '' }}</span>
+        <span class="badge badge-neutral">{{ module.type_label }}</span>
       </div>
-      <h3>{{ module.name }}</h3>
+      <span class="module-code">{{ module.code or 'Code pending' }}</span><h3>{{ module.name }}</h3>
       <p>{{ module.description }}</p>
+      <div class="module-card__footer"><span>{{ module.academic_year.label if module.academic_year else 'Legacy curriculum' }}</span><strong>{{ resource_counts.get(module.id, 0) }} resources</strong></div>
     </a>
     {% endfor %}
   </div>

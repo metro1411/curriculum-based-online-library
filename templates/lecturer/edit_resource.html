@@ -32,6 +32,7 @@
         {% endfor %}
       </div>
     </div>
+    <div class="form-group"><label class="form-label" for="topic_id">Topic</label><select class="form-select" id="topic_id" name="topic_id"><option value="">General module resource</option>{% for topic in topics %}<option value="{{ topic.id }}" {{ 'selected' if resource.topic_id == topic.id }}>{{ topic.category_label }} · {{ topic.unit_label or 'Topic' }} · {{ topic.title }}</option>{% endfor %}</select></div>
 
     <hr style="border: none; border-top: 1px solid var(--border-color); margin: 24px 0;">
 

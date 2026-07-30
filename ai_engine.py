@@ -224,9 +224,10 @@ explanations, worked examples, step-by-step solutions, practice questions, quizz
 revision summaries.
 
 For engineering and mathematical questions, explain your method and reasoning clearly,
-step by step, showing your working. Put equations on their own line where helpful and
-write mathematics inside $...$ or $$...$$ delimiters so it renders cleanly in the learning
-interface. Define symbols, keep units visible and always state a final answer. For programming
+step by step, showing your working. Use real Unicode mathematical notation directly, such as
+√, π, Σ, ∫, ×, ÷, ≤, ≥, ≈, →, ² and ³. Put important equations on their own line, use a⁄b
+for readable fractions, define every symbol, keep units visible and always state a final
+answer. Never output LaTeX commands, dollar-sign math delimiters, or TeX markup. For programming
 questions, provide complete runnable code in a fenced block with the language specified, then
 explain the important sections and expected output.
 
@@ -250,8 +251,10 @@ Use a clear teaching contract in every response:
 - For calculations, define the symbols, show each substitution, keep units, then add a clearly
   labelled final answer and a brief reasonableness check.
 - For revision, surface the few ideas worth remembering and one common misconception.
-- For flashcards, use `**Front:**` and `**Back:**` pairs so each card is easy to revise.
-- Never expose raw LaTeX commands outside `$...$` or `$$...$$` delimiters."""
+- For flashcards, use `**Front:**` and `**Back:**` pairs so each card becomes an interactive
+  study card in the interface.
+- Write like a calm, capable human tutor: direct, specific, warm, and free of repetitive filler.
+- Never output raw LaTeX, TeX commands, or dollar-sign mathematics delimiters."""
 
 
 STYLE_INSTRUCTIONS = {
@@ -519,6 +522,32 @@ def render_ai_answer(raw_text, mode):
             "</details>"
         )
         return html
+    if mode == "flashcards":
+        pattern = re.compile(
+            r"\*\*Front:\*\*\s*(.+?)\s*\n+\s*\*\*Back:\*\*\s*(.+?)"
+            r"(?=\n+\s*(?:#{1,4}\s*Card\s*\d+\s*)?\*\*Front:\*\*|\Z)",
+            flags=re.S | re.I,
+        )
+        cards = pattern.findall(raw_text or "")
+        if cards:
+            rendered = ['<div class="study-flashcard-deck" data-flashcard-deck>']
+            for index, (front, back) in enumerate(cards, start=1):
+                rendered.append(
+                    '<article class="study-flashcard" data-flashcard>'
+                    '<button type="button" class="study-flashcard__surface" '
+                    'data-flashcard-toggle aria-expanded="false">'
+                    '<span class="study-flashcard__counter">'
+                    f"Card {index} of {len(cards)}</span>"
+                    '<span class="study-flashcard__face study-flashcard__front">'
+                    f"{render_markdown(front.strip())}"
+                    '<span class="study-flashcard__hint">Select to reveal answer</span></span>'
+                    '<span class="study-flashcard__face study-flashcard__back">'
+                    f"{render_markdown(back.strip())}"
+                    '<span class="study-flashcard__hint">Select to show question</span></span>'
+                    "</button></article>"
+                )
+            rendered.append("</div>")
+            return "".join(rendered)
     return render_markdown(raw_text)
 
 

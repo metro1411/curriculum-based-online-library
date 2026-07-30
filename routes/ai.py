@@ -19,6 +19,7 @@ from models import (
     AIAnswerFeedback, utcnow,
 )
 from learning import record_learning_event
+from academic_activity import is_academic_question
 
 ai_bp = Blueprint("ai", __name__, url_prefix="/ai")
 
@@ -33,9 +34,19 @@ def require_student_role():
 def _active_modules():
     if current_user.programme_id:
         modules = (Module.query.join(Semester).filter(
-            Semester.nta_level.has(programme_id=current_user.programme_id)
+            Semester.nta_level.has(programme_id=current_user.programme_id),
+            Module.is_active.is_(True),
+            Module.publication_status == "published",
         ).order_by(Module.display_order).all())
-        return modules
+        return [
+            module for module in modules
+            if (not current_user.semester_id or module.semester_id == current_user.semester_id)
+            and (
+                not current_user.academic_year_id
+                or not module.academic_year_id
+                or module.academic_year_id == current_user.academic_year_id
+            )
+        ]
     active_semester = Semester.query.filter_by(is_active=True).first()
     return sorted(active_semester.modules, key=lambda m: m.display_order) if active_semester else []
 
@@ -45,7 +56,16 @@ def _student_can_use_module(module):
     if not module:
         return False
     if current_user.programme_id:
-        return module.semester.nta_level.programme_id == current_user.programme_id
+        return (
+            module.is_published
+            and module.semester.nta_level.programme_id == current_user.programme_id
+            and (not current_user.semester_id or module.semester_id == current_user.semester_id)
+            and (
+                not current_user.academic_year_id
+                or not module.academic_year_id
+                or module.academic_year_id == current_user.academic_year_id
+            )
+        )
     return bool(current_user.semester_id and module.semester_id == current_user.semester_id)
 
 
@@ -227,10 +247,20 @@ def ask():
         general_guidance=result["general_guidance"],
     )
     db.session.add(assistant_message)
-    if module:
+    event_module = module or next(iter(_active_modules()), None)
+    if event_module and is_academic_question(
+        question, has_module_context=bool(module)
+    ):
         record_learning_event(
-            current_user.id, module.id, "ai_question", duration_minutes=5,
-            detail=question[:240],
+            current_user.id,
+            event_module.id,
+            "academic_ai_question",
+            duration_minutes=0,
+            detail=(
+                f"Private academic question · {module.name}"
+                if module else "Private general academic question"
+            ),
+            qualifies_for_streak=True,
         )
     db.session.commit()
 

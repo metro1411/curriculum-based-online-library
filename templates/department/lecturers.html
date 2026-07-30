@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Lecturer directory | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ department.name }}</span><h1>Lecturer directory</h1><p>Pause access safely when teaching staff change. Academic history and resources are never deleted.</p></div><a class="btn btn-secondary" href="{{ url_for('department.lecturer_requests') }}">Verification requests</a></div>
+  <div class="people-grid">
+  {% for lecturer in lecturers %}
+    <article class="card card-pad person-card">
+      <div class="person-card__identity"><span class="profile-avatar">{{ lecturer.full_name[:1]|upper }}</span><div><span class="badge badge-{{ 'teal' if lecturer.is_active_account else 'neutral' }}">{{ 'Active' if lecturer.is_active_account else 'Deactivated' }}</span><h2>{{ lecturer.full_name }}</h2><p>{{ lecturer.email }}</p></div></div>
+      <dl class="compact-details"><div><dt>Staff ID</dt><dd>{{ lecturer.registration_number or 'Not supplied' }}</dd></div><div><dt>Approved modules</dt><dd>{{ assignment_counts.get(lecturer.id, 0) }}</dd></div></dl>
+      {% if lecturer.is_active_account %}
+      <form method="POST" action="{{ url_for('department.deactivate_lecturer', user_id=lecturer.id) }}" data-confirm="Deactivate {{ lecturer.full_name }}? Their records remain preserved and access can be restored."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-danger btn-sm">Deactivate access</button></form>
+      {% else %}
+      <form method="POST" action="{{ url_for('department.reactivate_lecturer', user_id=lecturer.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary btn-sm">Reactivate lecturer</button></form>
+      {% endif %}
+    </article>
+  {% else %}<div class="card card-pad empty-state"><h2>No lecturers found</h2></div>{% endfor %}
+  </div>
+</div>
+{% endblock %}

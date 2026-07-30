@@ -17,6 +17,7 @@ Supporting models:
 """
 
 from datetime import datetime, timezone
+import secrets
 
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -55,8 +56,11 @@ class User(UserMixin, db.Model):
     programme_id = db.Column(db.Integer, db.ForeignKey("programmes.id"), nullable=True)
     nta_level_id = db.Column(db.Integer, db.ForeignKey("nta_levels.id"), nullable=True)
     semester_id = db.Column(db.Integer, db.ForeignKey("semesters.id"), nullable=True)
+    academic_year_id = db.Column(db.Integer, db.ForeignKey("academic_years.id"), nullable=True)
 
     is_active_account = db.Column(db.Boolean, default=True, nullable=False)
+    deactivated_at = db.Column(db.DateTime, nullable=True)
+    deactivated_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     profile_photo_filename = db.Column(db.String(300), nullable=True)
     profile_photo_mime_type = db.Column(db.String(120), nullable=True)
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
@@ -65,6 +69,8 @@ class User(UserMixin, db.Model):
     programme = db.relationship("Programme", foreign_keys=[programme_id])
     nta_level = db.relationship("NtaLevel", foreign_keys=[nta_level_id])
     semester = db.relationship("Semester", foreign_keys=[semester_id])
+    academic_year = db.relationship("AcademicYear", foreign_keys=[academic_year_id])
+    deactivated_by = db.relationship("User", remote_side=[id], foreign_keys=[deactivated_by_id])
 
     uploaded_resources = db.relationship(
         "Resource", back_populates="uploaded_by", foreign_keys="Resource.uploaded_by_id"
@@ -92,6 +98,11 @@ class User(UserMixin, db.Model):
     def is_pending(self):
         return self.account_status == "pending"
 
+    @property
+    def is_active(self):
+        """Flask-Login must reject deactivated accounts immediately."""
+        return bool(self.is_active_account and self.account_status == "active")
+
     # Flask-Login uses get_id(); UserMixin already provides this from .id
     def __repr__(self):
         return f"<User {self.email} ({self.role})>"
@@ -114,6 +125,37 @@ class Department(db.Model):
     programmes = db.relationship(
         "Programme", back_populates="department",
         cascade="all, delete-orphan", order_by="Programme.display_order",
+    )
+    academic_years = db.relationship(
+        "AcademicYear", back_populates="department",
+        cascade="all, delete-orphan", order_by="AcademicYear.label.desc()",
+    )
+
+
+class AcademicYear(db.Model):
+    """A durable curriculum edition.
+
+    Modules are attached to an edition instead of being overwritten when a
+    new academic year starts. Historical content therefore stays available
+    for audit and authorised review.
+    """
+
+    __tablename__ = "academic_years"
+
+    id = db.Column(db.Integer, primary_key=True)
+    department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=False, index=True)
+    label = db.Column(db.String(20), nullable=False)
+    is_current = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    status = db.Column(db.String(20), default="active", nullable=False, index=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+
+    department = db.relationship("Department", back_populates="academic_years")
+    created_by = db.relationship("User", foreign_keys=[created_by_id])
+    modules = db.relationship("Module", back_populates="academic_year")
+
+    __table_args__ = (
+        db.UniqueConstraint("department_id", "label", name="uq_academic_year_department_label"),
     )
 
 
@@ -190,18 +232,34 @@ class Module(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     semester_id = db.Column(db.Integer, db.ForeignKey("semesters.id"), nullable=False)
+    academic_year_id = db.Column(db.Integer, db.ForeignKey("academic_years.id"), nullable=True, index=True)
     name = db.Column(db.String(200), nullable=False)
     # Official module codes are intentionally left blank unless DIT provides
     # them - see project documentation. Never auto-generate a fake code.
     code = db.Column(db.String(50), nullable=True)
+    module_type = db.Column(db.String(30), nullable=False, default="core")
+    cohort_label = db.Column(db.String(80), nullable=True)
     description = db.Column(db.Text, nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    publication_status = db.Column(db.String(20), nullable=False, default="published", index=True)
     display_order = db.Column(db.Integer, default=0, nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     semester = db.relationship("Semester", back_populates="modules")
+    academic_year = db.relationship("AcademicYear", back_populates="modules")
+    created_by = db.relationship("User", foreign_keys=[created_by_id])
     resources = db.relationship(
         "Resource", back_populates="module", cascade="all, delete-orphan"
     )
+
+    @property
+    def type_label(self):
+        return "General Studies Module" if self.module_type == "general_studies" else "Core Module"
+
+    @property
+    def is_published(self):
+        return self.is_active and self.publication_status == "published"
 
 
 # ---------------------------------------------------------------------------
@@ -223,12 +281,24 @@ RESOURCE_TYPES = [
 RESOURCE_TYPE_KEYS = [key for key, _ in RESOURCE_TYPES]
 RESOURCE_TYPE_LABELS = dict(RESOURCE_TYPES)
 
+TOPIC_CATEGORIES = [
+    ("concept", "Core Concept"),
+    ("theory", "Theory"),
+    ("practical", "Practical / Lab"),
+    ("tutorial", "Tutorial"),
+    ("project", "Project"),
+    ("revision", "Revision"),
+]
+TOPIC_CATEGORY_KEYS = [key for key, _ in TOPIC_CATEGORIES]
+TOPIC_CATEGORY_LABELS = dict(TOPIC_CATEGORIES)
+
 
 class Resource(db.Model):
     __tablename__ = "resources"
 
     id = db.Column(db.Integer, primary_key=True)
     module_id = db.Column(db.Integer, db.ForeignKey("modules.id"), nullable=False)
+    topic_id = db.Column(db.Integer, db.ForeignKey("topics.id"), nullable=True, index=True)
 
     title = db.Column(db.String(250), nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -255,6 +325,7 @@ class Resource(db.Model):
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     module = db.relationship("Module", back_populates="resources")
+    topic = db.relationship("Topic", back_populates="resources")
     uploaded_by = db.relationship(
         "User", back_populates="uploaded_resources", foreign_keys=[uploaded_by_id]
     )
@@ -391,14 +462,23 @@ class LecturerAssignment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     lecturer_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
     module_id = db.Column(db.Integer, db.ForeignKey("modules.id"), nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, default="approved", index=True)
+    reviewed_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    rejection_reason = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
 
     lecturer = db.relationship("User", foreign_keys=[lecturer_id])
     module = db.relationship("Module")
+    reviewed_by = db.relationship("User", foreign_keys=[reviewed_by_id])
 
     __table_args__ = (
         db.UniqueConstraint("lecturer_id", "module_id", name="uq_lecturer_module_assignment"),
     )
+
+    @property
+    def is_approved(self):
+        return self.status == "approved"
 
 
 class Topic(db.Model):
@@ -409,13 +489,22 @@ class Topic(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     module_id = db.Column(db.Integer, db.ForeignKey("modules.id"), nullable=False, index=True)
     title = db.Column(db.String(200), nullable=False)
+    category = db.Column(db.String(30), nullable=False, default="concept", index=True)
     learning_outcome = db.Column(db.Text, nullable=True)
     unit_label = db.Column(db.String(100), nullable=True)
     description = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(30), nullable=False, default="planned")
+    is_published = db.Column(db.Boolean, nullable=False, default=True)
     display_order = db.Column(db.Integer, default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     module = db.relationship("Module")
+    resources = db.relationship("Resource", back_populates="topic")
+
+    @property
+    def category_label(self):
+        return TOPIC_CATEGORY_LABELS.get(self.category, "Core Concept")
 
 
 class Announcement(db.Model):
@@ -445,6 +534,7 @@ class LearningEvent(db.Model):
     event_type = db.Column(db.String(40), nullable=False, index=True)
     duration_minutes = db.Column(db.Integer, default=0, nullable=False)
     detail = db.Column(db.String(240), nullable=True)
+    qualifies_for_streak = db.Column(db.Boolean, default=False, nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False, index=True)
 
     student = db.relationship("User", foreign_keys=[student_id])
@@ -461,6 +551,9 @@ class StudentPreference(db.Model):
     weekly_goal_minutes = db.Column(db.Integer, nullable=False, default=120)
     learning_goal = db.Column(db.String(220), nullable=True)
     data_saver = db.Column(db.Boolean, nullable=False, default=False)
+    reminder_frequency = db.Column(db.String(20), nullable=False, default="daily")
+    optional_emails = db.Column(db.Boolean, nullable=False, default=True)
+    goal_reminders = db.Column(db.Boolean, nullable=False, default=True)
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     student = db.relationship("User", foreign_keys=[student_id])
@@ -522,3 +615,115 @@ class LecturerRequest(db.Model):
     user = db.relationship("User", foreign_keys=[user_id])
     department = db.relationship("Department", foreign_keys=[department_id])
     reviewed_by = db.relationship("User", foreign_keys=[reviewed_by_id])
+
+
+# ---------------------------------------------------------------------------
+# Private academic questions, engagement sessions, notifications and audit
+# ---------------------------------------------------------------------------
+
+QUESTION_STATUSES = (
+    ("new", "New"),
+    ("reviewing", "Reviewing"),
+    ("answered", "Answered"),
+    ("will_address_in_class", "Will Address in Class"),
+    ("closed", "Closed"),
+)
+QUESTION_STATUS_KEYS = {key for key, _label in QUESTION_STATUSES}
+
+
+def anonymous_question_reference():
+    return f"Q-{secrets.token_hex(4).upper()}"
+
+
+class AcademicQuestion(db.Model):
+    """A private student-to-lecturer question.
+
+    The lecturer-facing UI exposes ``anonymous_ref`` but never ``student_id``.
+    The ownership link remains server-side so only the correct student receives
+    the response and email notification.
+    """
+
+    __tablename__ = "academic_questions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    anonymous_ref = db.Column(
+        db.String(20), unique=True, nullable=False, default=anonymous_question_reference, index=True
+    )
+    student_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    module_id = db.Column(db.Integer, db.ForeignKey("modules.id"), nullable=False, index=True)
+    topic_id = db.Column(db.Integer, db.ForeignKey("topics.id"), nullable=True, index=True)
+    lecturer_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    subject = db.Column(db.String(180), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(30), nullable=False, default="new", index=True)
+    answer = db.Column(db.Text, nullable=True)
+    academic_verified = db.Column(db.Boolean, nullable=False, default=True)
+    responded_at = db.Column(db.DateTime, nullable=True)
+    closed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False, index=True)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    student = db.relationship("User", foreign_keys=[student_id])
+    module = db.relationship("Module")
+    topic = db.relationship("Topic")
+    lecturer = db.relationship("User", foreign_keys=[lecturer_id])
+
+    @property
+    def status_label(self):
+        return dict(QUESTION_STATUSES).get(self.status, self.status.replace("_", " ").title())
+
+
+class ResourceStudySession(db.Model):
+    """Server-verified active study time for one student and resource."""
+
+    __tablename__ = "resource_study_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    student_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    resource_id = db.Column(db.Integer, db.ForeignKey("resources.id"), nullable=False, index=True)
+    module_id = db.Column(db.Integer, db.ForeignKey("modules.id"), nullable=False, index=True)
+    active_seconds = db.Column(db.Integer, nullable=False, default=0)
+    last_heartbeat_at = db.Column(db.DateTime, nullable=True)
+    qualified_at = db.Column(db.DateTime, nullable=True)
+    started_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+
+    student = db.relationship("User", foreign_keys=[student_id])
+    resource = db.relationship("Resource")
+    module = db.relationship("Module")
+
+
+class Notification(db.Model):
+    __tablename__ = "notifications"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    kind = db.Column(db.String(40), nullable=False, index=True)
+    title = db.Column(db.String(180), nullable=False)
+    body = db.Column(db.String(500), nullable=False)
+    target_url = db.Column(db.String(500), nullable=True)
+    is_read = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    email_status = db.Column(db.String(30), nullable=False, default="pending")
+    email_attempted_at = db.Column(db.DateTime, nullable=True)
+    email_error = db.Column(db.String(300), nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False, index=True)
+
+    user = db.relationship("User", foreign_keys=[user_id])
+
+
+class AuditLog(db.Model):
+    __tablename__ = "audit_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    actor_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=True, index=True)
+    action = db.Column(db.String(80), nullable=False, index=True)
+    target_type = db.Column(db.String(80), nullable=False)
+    target_id = db.Column(db.String(80), nullable=True)
+    target_label = db.Column(db.String(240), nullable=True)
+    details_json = db.Column(db.Text, nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False, index=True)
+
+    actor = db.relationship("User", foreign_keys=[actor_id])
+    department = db.relationship("Department", foreign_keys=[department_id])

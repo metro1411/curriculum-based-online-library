@@ -8,11 +8,12 @@ After extracting the release ZIP, double-click `START_HERE.bat`. It provides the
 
 ## What it includes
 
-- Student curriculum navigation, verified learning resources, quick search, saved items, download history, module learning paths, and visual personal learning insights.
-- A context-aware DIT AI assistant with conversation history, structured explanations, source references, mathematical notation, worked solutions, revision sheets, flashcards, quizzes, code blocks, follow-up prompts, and feedback controls.
-- Lecturer workspaces for publishing resources, managing topics and announcements, and reviewing class engagement, popular resources, topic coverage, study time, and AI support needs.
-- Private multi-user registration with ID-based Student (`2403...`), Lecturer (`1403...`) and protected Head of Department (`5000...`) roles; HOD lecturer approvals, module assignments, personal goals, streaks, achievements and Data Saver mode.
-- Local SQLite development storage plus managed-Postgres and private-cloud-storage support for public deployment; secure password hashing, CSRF protection, file validation, and scoped access control.
+- Student curriculum navigation by academic year, programme, NTA level and semester; topic-based resource albums; private lecturer questions; learning goals, streaks and visual personal insights.
+- A private DIT AI workspace with natural explanations, real mathematical symbols, interactive teal flashcards, labelled code blocks, revision sheets, quizzes, source references and feedback controls.
+- Lecturer workspaces for claiming HOD-approved modules, publishing topics and categorised resources, and answering anonymous student questions through the `New`, `Reviewing`, `Answered`, `Will Address in Class` and `Closed` workflow.
+- HOD curriculum versioning, module code and type (`Core` or `General Studies`), lecturer verification/deactivation, claim approval, module archiving and a searchable audit log.
+- Email and in-app notifications with student-controlled optional reminder frequency. Direct question replies and account notices remain available even when optional reminders are disabled.
+- Local SQLite development storage plus managed-Postgres and private-cloud-storage support for public deployment; secure password hashing, CSRF protection, strict access scoping, security headers, file validation and sensitive-action audit trails.
 
 ## Run locally
 
@@ -26,7 +27,7 @@ For the complete public deployment and upgrade checklist, see [DEPLOY_RENDER.md]
 
 The default address is `127.0.0.1:5055`. If it is unavailable, choose another local port without changing source code, for example: `PORT=5060 python app.py` (PowerShell: `$env:PORT=5060; python app.py`).
 
-On Windows, double-click `run_local.bat` for the same setup-and-start process. To run the isolated functional verification before starting the app, double-click `test_app.bat`; it checks login, learning navigation, analytics, resource upload/edit/delete, privacy rules, API responses, AI answer formatting, and the health endpoint without changing your seeded data.
+On Windows, double-click `run_local.bat` for the same setup-and-start process. To run the isolated functional verification before starting the app, double-click `test_app.bat`; it checks login, curriculum versioning, module claims, anonymous questions, notifications, ten-minute streak enforcement, deactivation, audit logs, resource management, API access, AI formatting, security headers and the health endpoint without changing your seeded data.
 
 On a local first launch, the application creates the curriculum, learning resources, and access accounts:
 
@@ -38,6 +39,12 @@ On a local first launch, the application creates the curriculum, learning resour
 ### Gemini AI setup
 
 Copy `.env.example` to `.env` in the same folder as `app.py`, then insert a Gemini API key created in [Google AI Studio](https://aistudio.google.com/app/apikey). A Google OAuth client secret, access token, or credential for another provider will not work. Fully stop the Python process and start the application again after changing `.env`. Start with `GEMINI_ENABLE_WEB_GROUNDING=0`; enable it only after regular chat is working and the project is entitled for Google Search grounding.
+
+### Academic years and email notifications
+
+Set `CURRENT_ACADEMIC_YEAR` when seeding a new installation. HOD-created modules are stored against their academic year, so starting a new semester or year does not overwrite historical curriculum records.
+
+To deliver email notifications, configure `PUBLIC_BASE_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS` or `SMTP_USE_SSL`, and `MAIL_FROM`. Without SMTP values, all notifications remain available inside the application. Run `flask send-study-reminders` from a daily scheduler; each student's daily, weekly or disabled preference is respected.
 
 ## Public deployment for free
 
@@ -67,13 +74,15 @@ Free services are ideal for a competition demonstration and small pilot. Render 
 
 ## Configuration
 
-Optionally create a local `.env` file and set values appropriate to your environment. Keep `SECRET_KEY`, `HOD_ACTIVATION_CODE`, `GEMINI_API_KEY`, `DATABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` out of version control. `HOST` and `PORT` can be set for local hosting. `GEMINI_MODEL` defaults to `gemini-3.5-flash`; `GEMINI_MAX_OUTPUT_TOKENS` defaults to `4096`. The service continues to provide source-grounded guidance when an AI provider is not configured.
+Optionally create a local `.env` file and set values appropriate to your environment. Keep `SECRET_KEY`, `HOD_ACTIVATION_CODE`, `GEMINI_API_KEY`, `SMTP_PASSWORD`, `DATABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` out of version control. `HOST` and `PORT` can be set for local hosting. `GEMINI_MODEL` defaults to `gemini-3.5-flash`; `GEMINI_MAX_OUTPUT_TOKENS` defaults to `4096`. The service continues to provide source-grounded guidance when an AI provider is not configured.
 
 ## Project structure
 
-- `routes/` — student, lecturer, authentication, API, and AI endpoints.
-- `templates/` and `static/` — responsive interface, accessible controls, and interaction behaviour.
-- `models.py` — curriculum, resource, conversation, and learning analytics models.
-- `learning.py` — purposeful learning-event aggregation.
-- `ai_engine.py` — retrieval, answer formatting, and mathematical rendering.
+- `routes/` — student, lecturer, HOD, notification, authentication, API and AI endpoints.
+- `templates/` and `static/` — responsive interface, accessible controls and interaction behaviour.
+- `models.py` — versioned curriculum, resources, private questions, notifications, audit, conversations and analytics models.
+- `learning.py` — purposeful learning-event aggregation and strict streak calculation.
+- `ai_engine.py` — private retrieval, natural answer formatting, flashcards and code presentation.
+- `notifications.py` — in-app and SMTP notification delivery with optional-email controls.
+- `governance.py` — audit logging for sensitive administrative and teaching actions.
 - `seed.py` — idempotent curriculum and starter learning data.

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Notifications | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container container-narrow fade-in">
+  <div class="page-header page-header--split">
+    <div><span class="page-header__eyebrow">Your updates</span><h1>Notifications</h1><p>Module decisions, private question replies and learning reminders in one place.</p></div>
+    {% if unread_notification_count %}
+    <form method="POST" action="{{ url_for('notifications.read_all') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-secondary">Mark all as read</button></form>
+    {% endif %}
+  </div>
+  <section class="notification-list" aria-label="Notifications">
+    {% for item in notifications %}
+    <article class="card notification-card {{ '' if item.is_read else 'notification-card--unread' }}">
+      <span class="notification-card__dot" aria-hidden="true"></span>
+      <div><span class="section-kicker">{{ item.kind|replace('_', ' ')|title }}</span><h2>{{ item.title }}</h2><p>{{ item.body }}</p><small>{{ item.created_at.strftime('%d %b %Y · %H:%M') }} · Email: {{ item.email_status|replace('_', ' ') }}</small></div>
+      <form method="POST" action="{{ url_for('notifications.open_notification', notification_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-secondary btn-sm">{{ 'Open' if item.target_url else 'Mark read' }}</button></form>
+    </article>
+    {% else %}
+    <div class="card card-pad empty-state"><span class="empty-state__icon">{{ icons.icon('check', size=28) }}</span><h2>You are all caught up</h2><p>New academic updates will appear here.</p></div>
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}

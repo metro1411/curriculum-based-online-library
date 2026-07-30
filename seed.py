@@ -12,13 +12,14 @@ created, so re-running never duplicates rows.
 import os
 import logging
 import mimetypes
+from datetime import datetime
 
 from flask import current_app
 
 from extensions import db
 from models import (
-    User, Department, Programme, NtaLevel, Semester, Module, Resource, ResourceChunk,
-    LecturerAssignment, Topic,
+    User, Department, AcademicYear, Programme, NtaLevel, Semester, Module, Resource,
+    ResourceChunk, LecturerAssignment, Topic,
 )
 from utils import build_stored_filename
 from file_processing import process_resource_text
@@ -166,13 +167,25 @@ def _get_or_create_semester(level, semester_number, is_active):
     return sem
 
 
-def _get_or_create_module(semester, name, description, order):
-    mod = Module.query.filter_by(semester_id=semester.id, name=name).first()
+def _get_or_create_module(semester, academic_year, name, description, order):
+    mod = Module.query.filter(
+        Module.semester_id == semester.id,
+        Module.name == name,
+        db.or_(
+            Module.academic_year_id == academic_year.id,
+            Module.academic_year_id.is_(None),
+        ),
+    ).order_by(Module.academic_year_id.desc()).first()
     if mod:
+        mod.academic_year_id = academic_year.id
+        if not mod.module_type:
+            mod.module_type = "general_studies" if name == "Technical Writing" else "core"
         return mod
     mod = Module(
-        semester_id=semester.id, name=name, code=None, description=description,
-        is_active=True, display_order=order,
+        semester_id=semester.id, academic_year_id=academic_year.id,
+        name=name, code=None, description=description,
+        module_type="general_studies" if name == "Technical Writing" else "core",
+        publication_status="published", is_active=True, display_order=order,
     )
     db.session.add(mod)
     db.session.flush()
@@ -187,6 +200,25 @@ def _seed_curriculum():
         "instrumentation and related technologies.",
         is_active=True, order=1,
     )
+    now = datetime.utcnow()
+    academic_start = now.year if now.month >= 8 else now.year - 1
+    academic_label = os.environ.get(
+        "CURRENT_ACADEMIC_YEAR", f"{academic_start}/{academic_start + 1}"
+    ).strip()
+    academic_year = AcademicYear.query.filter_by(
+        department_id=ee_dept.id, label=academic_label
+    ).first()
+    if academic_year is None:
+        academic_year = AcademicYear(
+            department_id=ee_dept.id, label=academic_label,
+            is_current=True, status="active",
+        )
+        db.session.add(academic_year)
+        db.session.flush()
+    elif not AcademicYear.query.filter_by(
+        department_id=ee_dept.id, is_current=True
+    ).first():
+        academic_year.is_current = True
     _get_or_create_department(
         "Civil Engineering",
         "Structural, geotechnical, water resources and transportation engineering.",
@@ -236,21 +268,29 @@ def _seed_curriculum():
     # --- Modules under Semester 2 ---------------------------------------
     modules_by_name = {}
     for i, (name, description) in enumerate(MODULE_NAMES, start=1):
-        modules_by_name[name] = _get_or_create_module(sem2, name, description, i)
+        modules_by_name[name] = _get_or_create_module(
+            sem2, academic_year, name, description, i
+        )
 
     db.session.flush()
-    _place_student_account(ee_dept, ee_programme, active_level, sem2)
+    _place_student_account(ee_dept, ee_programme, active_level, sem2, academic_year)
+    lecturer = User.query.filter_by(email=LECTURER_EMAIL).first()
+    if lecturer and not lecturer.department_id:
+        lecturer.department_id = ee_dept.id
 
     return modules_by_name
 
 
-def _place_student_account(department, programme, level, semester):
+def _place_student_account(department, programme, level, semester, academic_year):
     student = User.query.filter_by(email=STUDENT_EMAIL).first()
-    if student and not student.department_id:
-        student.department_id = department.id
-        student.programme_id = programme.id
-        student.nta_level_id = level.id
-        student.semester_id = semester.id
+    if student:
+        if not student.department_id:
+            student.department_id = department.id
+            student.programme_id = programme.id
+            student.nta_level_id = level.id
+            student.semester_id = semester.id
+        if not student.academic_year_id:
+            student.academic_year_id = academic_year.id
 
 
 # ---------------------------------------------------------------------------
@@ -731,17 +771,19 @@ def _seed_foundation_resources(modules_by_name, lecturer):
 def _seed_control_workspace(control, lecturer):
     """Create the one complete lecturer workspace delivered in this release."""
     if not LecturerAssignment.query.filter_by(lecturer_id=lecturer.id, module_id=control.id).first():
-        db.session.add(LecturerAssignment(lecturer_id=lecturer.id, module_id=control.id))
+        db.session.add(LecturerAssignment(
+            lecturer_id=lecturer.id, module_id=control.id, status="approved"
+        ))
 
     topics = [
-        ("Unit 1", "Control-system foundations", "Identify open-loop and closed-loop system components."),
-        ("Unit 2", "Mathematical modelling and transfer functions", "Develop transfer-function models from system descriptions."),
-        ("Unit 3", "Feedback and closed-loop response", "Analyse the effect of negative feedback on response."),
-        ("Unit 4", "Stability and performance", "Interpret poles, stability and transient-response measures."),
+        ("Unit 1", "concept", "Control-system foundations", "Identify open-loop and closed-loop system components."),
+        ("Unit 2", "theory", "Mathematical modelling and transfer functions", "Develop transfer-function models from system descriptions."),
+        ("Unit 3", "theory", "Feedback and closed-loop response", "Analyse the effect of negative feedback on response."),
+        ("Unit 4", "theory", "Stability and performance", "Interpret poles, stability and transient-response measures."),
     ]
-    for order, (unit, title, outcome) in enumerate(topics, start=1):
+    for order, (unit, category, title, outcome) in enumerate(topics, start=1):
         if not Topic.query.filter_by(module_id=control.id, title=title).first():
             db.session.add(Topic(
                 module_id=control.id, unit_label=unit, title=title,
-                learning_outcome=outcome, display_order=order,
+                category=category, learning_outcome=outcome, display_order=order,
             ))

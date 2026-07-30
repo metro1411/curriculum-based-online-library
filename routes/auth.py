@@ -6,7 +6,10 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_user, logout_user, login_required, current_user
 
 from extensions import db
-from models import Department, Programme, NtaLevel, Semester, User, LecturerRequest, utcnow
+from models import (
+    AcademicYear, Department, Programme, NtaLevel, Semester, User,
+    LecturerRequest, utcnow,
+)
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -112,7 +115,12 @@ def _valid_student_placement():
         return None, "Choose an active programme within your department."
     if level.programme_id != programme.id or semester.nta_level_id != level.id:
         return None, "Your selected level and semester do not match your programme."
-    return (department, programme, level, semester), None
+    academic_year = AcademicYear.query.filter_by(
+        department_id=department.id, is_current=True, status="active"
+    ).first()
+    if academic_year is None:
+        return None, "The department has not published a current academic year."
+    return (department, programme, level, semester, academic_year), None
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -171,14 +179,14 @@ def register():
             flash("An account already uses that ID number or email address.", "error")
         else:
             department = None
-            programme = level = semester = None
+            programme = level = semester = academic_year = None
             if role == "student":
                 placement, placement_error = _valid_student_placement()
                 if placement_error:
                     flash(placement_error, "error")
                     return render_template("auth/register.html", departments=departments, programmes=programmes,
                                            levels=levels, semesters=semesters)
-                department, programme, level, semester = placement
+                department, programme, level, semester, academic_year = placement
             elif role == "lecturer":
                 department = db.session.get(Department, request.form.get("department_id", type=int))
                 if not department or not department.is_active:
@@ -214,6 +222,7 @@ def register():
                 programme_id=programme.id if programme else None,
                 nta_level_id=level.id if level else None,
                 semester_id=semester.id if semester else None,
+                academic_year_id=academic_year.id if academic_year else None,
             )
             user.set_password(password)
             db.session.add(user)

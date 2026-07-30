@@ -114,6 +114,19 @@ class Config:
     # when lecturer material does not provide a confident answer.
     GEMINI_ENABLE_WEB_GROUNDING = os.environ.get("GEMINI_ENABLE_WEB_GROUNDING", "1") == "1"
 
+    # Transactional email. Any standards-compliant SMTP provider can be used.
+    # Question/claim notifications remain available in-app when email has not
+    # yet been configured.
+    SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "").strip()
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+    SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "1") == "1"
+    SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "0") == "1"
+    SMTP_TIMEOUT_SECONDS = int(os.environ.get("SMTP_TIMEOUT_SECONDS", "10"))
+    MAIL_FROM = os.environ.get("MAIL_FROM", "").strip()
+    PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+
     # When these values are configured, uploaded resources are kept in a
     # private Supabase Storage bucket instead of the web server's temporary
     # filesystem. Leave them unset for simple local development.

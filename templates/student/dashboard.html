@@ -23,12 +23,12 @@
     <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('eye', size=18) }}</span><div><strong>{{ dashboard_metrics.resources_viewed }}</strong><span>Resources viewed</span></div></article>
     <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('bookmark', size=18) }}</span><div><strong>{{ dashboard_metrics.saved }}</strong><span>Saved for review</span></div></article>
     <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('download', size=18) }}</span><div><strong>{{ dashboard_metrics.downloads }}</strong><span>Downloads</span></div></article>
-    <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('sparkles', size=18) }}</span><div><strong>{{ dashboard_metrics.ai_questions }}</strong><span>AI questions</span></div></article>
+    <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('sparkles', size=18) }}</span><div><strong>{{ dashboard_metrics.ai_questions }}</strong><span>Academic questions</span></div></article>
     <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('award', size=18) }}</span><div><strong>{{ profile_summary.current_streak }}</strong><span>Day learning streak</span></div></article>
   </section>
 
   <section class="dashboard-grid dashboard-grid--priority dashboard-grid--streak">
-    <article class="card card-pad streak-card"><div><span class="section-kicker">Personal momentum</span><h2>{{ profile_summary.current_streak }} day streak</h2><p>Your longest learning rhythm is {{ profile_summary.longest_streak }} day{{ '' if profile_summary.longest_streak == 1 else 's' }}. Small consistent sessions count.</p></div><a class="btn btn-secondary btn-sm" href="{{ url_for('profile.settings') }}">View goals & profile</a></article>
+    <article class="card card-pad streak-card"><div><span class="section-kicker">Verified learning momentum</span><h2>{{ profile_summary.current_streak }} day streak</h2><p>A day counts after a genuine academic question or 10 active minutes with a learning resource. Idle and background tabs do not count.</p></div><a class="btn btn-secondary btn-sm" href="{{ url_for('profile.settings') }}">View goals & profile</a></article>
     <article class="card card-pad achievement-card"><span class="section-kicker">Personal achievements</span>{% if profile_summary.achievements %}<div class="achievement-list">{% for achievement in profile_summary.achievements[:3] %}<div><strong>{{ achievement.title }}</strong><small>{{ achievement.detail }}</small></div>{% endfor %}</div>{% else %}<p>Begin studying to unlock your first private learning achievement.</p>{% endif %}</article>
   </section>
 

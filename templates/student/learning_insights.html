@@ -5,7 +5,7 @@
 <div class="container fade-in analytics-page student-insights">
   <div class="module-banner">
     <div><span class="page-header__eyebrow">Personal learning analytics</span><h1>Make your next study session count.</h1><p>Your purposeful learning activity becomes practical next steps for {{ module.name }}.</p></div>
-    <form method="GET" class="module-switch"><label class="sr-only" for="module_id">Module</label><select class="form-select" id="module_id" name="module_id" onchange="this.form.submit()">{% for item in modules %}<option value="{{ item.id }}" {{ 'selected' if item.id == module.id }}>{{ item.name }}</option>{% endfor %}</select></form>
+    <form method="GET" class="module-switch"><label class="sr-only" for="module_id">Module</label><select class="form-select" id="module_id" name="module_id" data-submit-on-change>{% for item in modules %}<option value="{{ item.id }}" {{ 'selected' if item.id == module.id }}>{{ item.name }}</option>{% endfor %}</select></form>
   </div>
 
   <section class="student-summary-grid">
@@ -24,7 +24,7 @@
       <div class="study-heatmap" aria-label="Daily activity intensity">{% for point in insights.timeline %}<span class="study-heatmap__day" style="--heat: {{ point.intensity }}" title="{{ point.label }}: {{ point.count }} learning action{{ '' if point.count == 1 else 's' }}"></span>{% endfor %}</div>
     </article>
 
-    <article class="card card-pad analytics-panel activity-mix-card"><span class="section-kicker">Learning activity mix</span><h2>How you are learning</h2><div class="activity-stack" aria-label="Learning activity breakdown">{% for item in insights.activity_breakdown %}<span class="activity-stack__segment activity-stack__segment--{{ item.key }}" style="width: {{ item.percent }}%"></span>{% endfor %}</div><div class="activity-mix-list">{% for item in insights.activity_breakdown %}<div><span class="activity-mix-list__dot activity-mix-list__dot--{{ item.key }}"></span><span>{{ item.label }}</span><strong>{{ item.count }}</strong></div>{% endfor %}</div><div class="insights-mini-metrics"><span>{{ icons.icon('eye', size=15) }} {{ insights.resources_viewed }} resources explored</span><span>{{ icons.icon('download', size=15) }} {{ insights.downloads }} downloads</span><span>{{ icons.icon('sparkles', size=15) }} {{ insights.questions }} AI questions</span></div></article>
+    <article class="card card-pad analytics-panel activity-mix-card"><span class="section-kicker">Learning activity mix</span><h2>How you are learning</h2><div class="activity-stack" aria-label="Learning activity breakdown">{% for item in insights.activity_breakdown %}<span class="activity-stack__segment activity-stack__segment--{{ item.key }}" style="width: {{ item.percent }}%"></span>{% endfor %}</div><div class="activity-mix-list">{% for item in insights.activity_breakdown %}<div><span class="activity-mix-list__dot activity-mix-list__dot--{{ item.key }}"></span><span>{{ item.label }}</span><strong>{{ item.count }}</strong></div>{% endfor %}</div><div class="insights-mini-metrics"><span>{{ icons.icon('eye', size=15) }} {{ insights.resources_viewed }} resources explored</span><span>{{ icons.icon('download', size=15) }} {{ insights.downloads }} downloads</span><span>{{ icons.icon('sparkles', size=15) }} {{ insights.questions }} academic questions</span></div></article>
   </section>
 
   <section class="analytics-grid analytics-grid--three">

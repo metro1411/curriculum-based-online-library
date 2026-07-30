@@ -12,15 +12,18 @@
     {% if current_user.is_authenticated and current_user.is_department_head %}
     <nav class="navbar__links" aria-label="Primary">
       <a class="nav-link {{ 'active' if request.endpoint == 'department.dashboard' }}" href="{{ url_for('department.dashboard') }}">Department overview</a>
-      <a class="nav-link {{ 'active' if request.endpoint == 'department.lecturer_requests' }}" href="{{ url_for('department.lecturer_requests') }}">Lecturer requests</a>
+      <a class="nav-link {{ 'active' if request.endpoint == 'department.curriculum' }}" href="{{ url_for('department.curriculum') }}">Curriculum</a>
+      <a class="nav-link {{ 'active' if request.endpoint in ['department.lecturer_requests', 'department.lecturers'] }}" href="{{ url_for('department.lecturers') }}">Lecturers</a>
+      <a class="nav-link {{ 'active' if request.endpoint == 'department.module_claims' }}" href="{{ url_for('department.module_claims') }}">Module claims</a>
     </nav>
     <div class="navbar__actions">
+      <a class="nav-utility nav-utility--icon notification-link" href="{{ url_for('notifications.index') }}" aria-label="Notifications">{{ icons.icon('bell', size=16) }}{% if unread_notification_count %}<span>{{ unread_notification_count }}</span>{% endif %}</a>
       <button type="button" class="nav-utility nav-utility--icon" data-theme-toggle aria-label="Switch to dark mode">{{ icons.icon('moon', size=16) }}</button>
       <a class="user-chip desktop-only" href="{{ url_for('profile.settings') }}"><span class="user-chip__avatar">{{ current_user.full_name[:1]|upper }}</span>{{ current_user.full_name.split(' ')[0] }}</a>
       <a class="nav-link desktop-only" href="{{ url_for('auth.logout') }}">{{ icons.icon('log-out', size=16) }} Logout</a>
       <button class="mobile-toggle" data-mobile-toggle aria-label="Open menu" aria-expanded="false">{{ icons.icon('menu', size=20) }}</button>
     </div>
-    <div class="mobile-panel" data-mobile-panel aria-hidden="true" inert><a class="nav-link" href="{{ url_for('department.dashboard') }}">Department overview</a><a class="nav-link" href="{{ url_for('department.lecturer_requests') }}">Lecturer requests</a><a class="nav-link" href="{{ url_for('profile.settings') }}">Profile</a><button type="button" class="nav-link nav-link--button" data-theme-toggle>Switch appearance</button><a class="nav-link" href="{{ url_for('auth.logout') }}">Logout</a></div>
+    <div class="mobile-panel" data-mobile-panel aria-hidden="true" inert><a class="nav-link" href="{{ url_for('department.dashboard') }}">Department overview</a><a class="nav-link" href="{{ url_for('department.curriculum') }}">Curriculum</a><a class="nav-link" href="{{ url_for('department.lecturers') }}">Lecturers</a><a class="nav-link" href="{{ url_for('department.lecturer_requests') }}">Verification requests</a><a class="nav-link" href="{{ url_for('department.module_claims') }}">Module claims</a><a class="nav-link" href="{{ url_for('department.audit_log') }}">Audit log</a><a class="nav-link" href="{{ url_for('notifications.index') }}">Notifications{% if unread_notification_count %} ({{ unread_notification_count }}){% endif %}</a><a class="nav-link" href="{{ url_for('profile.settings') }}">Profile</a><button type="button" class="nav-link nav-link--button" data-theme-toggle>Switch appearance</button><a class="nav-link" href="{{ url_for('auth.logout') }}">Logout</a></div>
 
     {% elif current_user.is_authenticated and current_user.is_student %}
     <nav class="navbar__links" aria-label="Primary">
@@ -30,10 +33,11 @@
       <a class="nav-link {{ 'active' if request.endpoint == 'student.downloads' }}" href="{{ url_for('student.downloads') }}">Downloads</a>
       <a class="nav-link {{ 'active' if request.endpoint == 'student.search' }}" href="{{ url_for('student.search') }}">Search</a>
       <a class="nav-link {{ 'active' if request.endpoint and request.endpoint.startswith('ai.') }}" href="{{ url_for('ai.assistant') }}">DIT AI</a>
-      <a class="nav-link {{ 'active' if request.endpoint == 'profile.settings' }}" href="{{ url_for('profile.settings') }}">Profile</a>
+      <a class="nav-link {{ 'active' if request.endpoint == 'student.questions' }}" href="{{ url_for('student.questions') }}">Ask lecturer</a>
     </nav>
     <div class="navbar__actions">
       <button type="button" class="nav-utility desktop-only" data-open-search aria-label="Open search">{{ icons.icon('search', size=16) }} <span>Search</span><kbd>Ctrl K</kbd></button>
+      <a class="nav-utility nav-utility--icon notification-link" href="{{ url_for('notifications.index') }}" aria-label="Notifications">{{ icons.icon('bell', size=16) }}{% if unread_notification_count %}<span>{{ unread_notification_count }}</span>{% endif %}</a>
       <button type="button" class="nav-utility nav-utility--icon" data-theme-toggle aria-label="Switch to dark mode">{{ icons.icon('moon', size=16) }}</button>
       <span class="user-chip desktop-only">
         <span class="user-chip__avatar">{{ current_user.full_name[:1]|upper }}</span>
@@ -49,6 +53,8 @@
       <a class="nav-link" href="{{ url_for('student.downloads') }}">Downloads</a>
       <a class="nav-link" href="{{ url_for('student.search') }}">Search</a>
       <a class="nav-link" href="{{ url_for('ai.assistant') }}">Ask DIT AI</a>
+      <a class="nav-link" href="{{ url_for('student.questions') }}">Ask a lecturer privately</a>
+      <a class="nav-link" href="{{ url_for('notifications.index') }}">Notifications{% if unread_notification_count %} ({{ unread_notification_count }}){% endif %}</a>
       <a class="nav-link" href="{{ url_for('profile.settings') }}">Profile & goals</a>
       <button type="button" class="nav-link nav-link--button" data-open-search>{{ icons.icon('search', size=16) }} Search learning materials</button>
       <button type="button" class="nav-link nav-link--button" data-theme-toggle>{{ icons.icon('moon', size=16) }} Switch appearance</button>
@@ -61,9 +67,10 @@
       <a class="nav-link {{ 'active' if request.endpoint == 'lecturer.workspace' }}" href="{{ url_for('lecturer.workspace') }}">Module Workspace</a>
       <a class="nav-link {{ 'active' if request.endpoint and request.endpoint.startswith('lecturer.upload') }}" href="{{ url_for('lecturer.upload_departments') }}">Upload Resource</a>
       <a class="nav-link {{ 'active' if request.endpoint == 'lecturer.manage_resources' }}" href="{{ url_for('lecturer.manage_resources') }}">Manage Resources</a>
-      <a class="nav-link {{ 'active' if request.endpoint == 'profile.settings' }}" href="{{ url_for('profile.settings') }}">Profile</a>
+      <a class="nav-link {{ 'active' if request.endpoint == 'lecturer.questions' }}" href="{{ url_for('lecturer.questions') }}">Student questions</a>
     </nav>
     <div class="navbar__actions">
+      <a class="nav-utility nav-utility--icon notification-link" href="{{ url_for('notifications.index') }}" aria-label="Notifications">{{ icons.icon('bell', size=16) }}{% if unread_notification_count %}<span>{{ unread_notification_count }}</span>{% endif %}</a>
       <button type="button" class="nav-utility nav-utility--icon" data-theme-toggle aria-label="Switch to dark mode">{{ icons.icon('moon', size=16) }}</button>
       <span class="user-chip desktop-only">
         <span class="user-chip__avatar">{{ current_user.full_name[:1]|upper }}</span>
@@ -77,6 +84,8 @@
       <a class="nav-link" href="{{ url_for('lecturer.workspace') }}">Module Workspace</a>
       <a class="nav-link" href="{{ url_for('lecturer.upload_departments') }}">Upload Resource</a>
       <a class="nav-link" href="{{ url_for('lecturer.manage_resources') }}">Manage Resources</a>
+      <a class="nav-link" href="{{ url_for('lecturer.questions') }}">Student questions</a>
+      <a class="nav-link" href="{{ url_for('notifications.index') }}">Notifications{% if unread_notification_count %} ({{ unread_notification_count }}){% endif %}</a>
       <a class="nav-link" href="{{ url_for('profile.settings') }}">Profile</a>
       <button type="button" class="nav-link nav-link--button" data-theme-toggle>{{ icons.icon('moon', size=16) }} Switch appearance</button>
       <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout ({{ current_user.full_name.split(' ')[0] }})</a>

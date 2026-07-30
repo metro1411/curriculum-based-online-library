@@ -12,14 +12,19 @@ from flask import (
     Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, session,
 )
 from flask_login import login_required, current_user
+from sqlalchemy import case
 from werkzeug.utils import secure_filename
 
 from extensions import db
 from models import (
     Department, Programme, Module, Resource, ResourceChunk,
     RESOURCE_TYPES, RESOURCE_TYPE_KEYS, LecturerAssignment, Topic, Announcement,
+    AcademicQuestion, AcademicYear, QUESTION_STATUSES, QUESTION_STATUS_KEYS,
+    TOPIC_CATEGORIES, TOPIC_CATEGORY_KEYS, User, utcnow,
 )
 from learning import lecturer_insights
+from governance import record_audit
+from notifications import notify
 from curriculum import (
     get_department_or_404, get_programme_or_404, get_level_or_404, get_semester_or_404,
     get_module_or_404, build_breadcrumbs, coming_soon_response,
@@ -46,12 +51,14 @@ def _all_modules_for_filters():
 
 
 def _assignments():
-    return LecturerAssignment.query.filter_by(lecturer_id=current_user.id).all()
+    return LecturerAssignment.query.filter_by(
+        lecturer_id=current_user.id, status="approved"
+    ).all()
 
 
 def _assigned_module(module_id):
     return (LecturerAssignment.query.filter_by(
-        lecturer_id=current_user.id, module_id=module_id
+        lecturer_id=current_user.id, module_id=module_id, status="approved"
     ).first() is not None)
 
 
@@ -81,7 +88,9 @@ def dashboard():
         days = 30
     return render_template(
         "lecturer/dashboard.html", module=module, total=total, verified=verified, pending=pending,
-        recent=recent, insights=lecturer_insights(module, days=days), days=days,
+        recent=recent, insights=lecturer_insights(
+            module, lecturer_id=current_user.id, days=days
+        ), days=days,
     )
 
 
@@ -90,14 +99,90 @@ def workspace():
     """A deliberate, scoped onboarding flow for the lecturer module workspace."""
     assignments = _assignments()
     if request.method == "POST":
+        if request.form.get("action") == "claim":
+            module_id = request.form.get("module_id", type=int)
+            module = db.session.get(Module, module_id) if module_id else None
+            if (
+                not module
+                or not module.is_published
+                or not current_user.department_id
+                or module.semester.nta_level.programme.department_id != current_user.department_id
+            ):
+                flash("Choose a published module from your department.", "error")
+                return redirect(url_for("lecturer.workspace"))
+            claim = LecturerAssignment.query.filter_by(
+                lecturer_id=current_user.id, module_id=module.id
+            ).first()
+            if claim and claim.status == "approved":
+                flash("You are already approved to teach that module.", "info")
+                return redirect(url_for("lecturer.workspace"))
+            if claim is None:
+                claim = LecturerAssignment(
+                    lecturer_id=current_user.id, module_id=module.id, status="pending"
+                )
+                db.session.add(claim)
+            else:
+                claim.status = "pending"
+                claim.reviewed_by_id = None
+                claim.reviewed_at = None
+                claim.rejection_reason = None
+            db.session.flush()
+            heads = User.query.filter_by(
+                department_id=current_user.department_id,
+                role="department_head",
+                is_active_account=True,
+            ).all()
+            for head in heads:
+                notify(
+                    head,
+                    "module_claim",
+                    f"Module claim: {module.code or module.name}",
+                    f"{current_user.full_name} requested approval to teach {module.name}.",
+                    target_url="/department/module-claims",
+                )
+            record_audit(
+                "module_claim.submitted", "LecturerAssignment", target_id=claim.id,
+                target_label=f"{current_user.full_name} · {module.name}",
+                department_id=current_user.department_id,
+            )
+            db.session.commit()
+            flash("Your module claim was sent to the HOD for approval.", "success")
+            return redirect(url_for("lecturer.workspace"))
+
         module_id = request.form.get("module_id", type=int)
         if not module_id or not _assigned_module(module_id):
             flash("That module is not assigned to your lecturer account.", "error")
             return redirect(url_for("lecturer.workspace"))
         session["lecturer_module_id"] = module_id
-        flash("Your Control Engineering workspace is ready.", "success")
+        flash("Your teaching workspace is ready.", "success")
         return redirect(url_for("lecturer.dashboard"))
-    return render_template("lecturer/workspace.html", assignments=assignments)
+    claims = LecturerAssignment.query.filter_by(lecturer_id=current_user.id).all()
+    claimed_ids = {claim.module_id for claim in claims}
+    available = []
+    if current_user.department_id:
+        current_year = AcademicYear.query.filter_by(
+            department_id=current_user.department_id, is_current=True, status="active"
+        ).first()
+        available = [
+            module for module in Module.query.all()
+            if module.is_published
+            and module.id not in claimed_ids
+            and module.semester.nta_level.programme.department_id == current_user.department_id
+            and (not current_year or module.academic_year_id == current_year.id)
+        ]
+        available.sort(key=lambda module: (
+            module.academic_year.label if module.academic_year else "",
+            module.semester.nta_level.programme.name,
+            module.semester.nta_level.level_number,
+            module.semester.semester_number,
+            module.display_order,
+        ), reverse=True)
+    return render_template(
+        "lecturer/workspace.html",
+        assignments=assignments,
+        claims=claims,
+        available_modules=available,
+    )
 
 
 @lecturer_bp.route("/workspace/clear", methods=["POST"])
@@ -229,6 +314,8 @@ def upload_form(module_id):
     return render_template(
         "lecturer/upload_form.html", module=module, department=department, programme=programme,
         level=level, semester=semester, resource_types=RESOURCE_TYPES, breadcrumbs=breadcrumbs,
+        topics=Topic.query.filter_by(module_id=module.id, is_published=True)
+        .order_by(Topic.display_order).all(),
     )
 
 
@@ -236,12 +323,17 @@ def _handle_upload_post(module):
     title = (request.form.get("title") or "").strip()
     description = (request.form.get("description") or "").strip()
     resource_type = request.form.get("resource_type") or "other"
+    topic_id = request.form.get("topic_id", type=int)
     external_url = (request.form.get("external_url") or "").strip()
     verified = bool(request.form.get("verified"))
     upload_file = request.files.get("file")
 
     if resource_type not in RESOURCE_TYPE_KEYS:
         resource_type = "other"
+    topic = Topic.query.filter_by(id=topic_id, module_id=module.id).first() if topic_id else None
+    if topic_id and topic is None:
+        flash("Choose a topic that belongs to this module.", "error")
+        return redirect(url_for("lecturer.upload_form", module_id=module.id))
 
     redirect_back = redirect(url_for("lecturer.upload_form", module_id=module.id))
 
@@ -291,6 +383,7 @@ def _handle_upload_post(module):
     try:
         resource = Resource(
             module_id=module.id,
+            topic_id=topic.id if topic else None,
             title=title,
             description=description,
             resource_type=resource_type,
@@ -304,6 +397,12 @@ def _handle_upload_post(module):
         )
         db.session.add(resource)
         db.session.flush()
+        record_audit(
+            "resource.created", "Resource", target_id=resource.id,
+            target_label=resource.title,
+            department_id=module.semester.nta_level.programme.department_id,
+            details={"module_id": module.id, "resource_type": resource.resource_type},
+        )
 
         if stored_filename:
             chunks, status = process_resource_text(save_path, ext)
@@ -343,20 +442,33 @@ def module_content(module_id):
         action = request.form.get("action")
         if action == "topic":
             title = (request.form.get("title") or "").strip()
+            category = request.form.get("category") or "concept"
             if not title:
-                flash("A curriculum topic needs a title.", "error")
+                flash("Enter a topic title.", "error")
+            elif category not in TOPIC_CATEGORY_KEYS:
+                flash("Choose a valid topic category.", "error")
             else:
                 next_order = (db.session.query(db.func.max(Topic.display_order))
                               .filter_by(module_id=module.id).scalar() or 0) + 1
                 db.session.add(Topic(
                     module_id=module.id, title=title,
+                    category=category,
                     unit_label=(request.form.get("unit_label") or "").strip() or None,
                     learning_outcome=(request.form.get("learning_outcome") or "").strip() or None,
                     description=(request.form.get("description") or "").strip() or None,
+                    status=request.form.get("status") if request.form.get("status") in {
+                        "planned", "currently_teaching", "completed", "revision"
+                    } else "planned",
+                    is_published=bool(request.form.get("is_published")),
                     display_order=next_order,
                 ))
+                record_audit(
+                    "topic.created", "Topic", target_label=title,
+                    department_id=module.semester.nta_level.programme.department_id,
+                    details={"module_id": module.id, "category": category},
+                )
                 db.session.commit()
-                flash("Curriculum topic added to the module knowledge base.", "success")
+                flash("Topic added.", "success")
         elif action == "announcement":
             title = (request.form.get("title") or "").strip()
             body = (request.form.get("body") or "").strip()
@@ -374,6 +486,7 @@ def module_content(module_id):
     return render_template(
         "lecturer/module_content.html", module=module,
         topics=Topic.query.filter_by(module_id=module.id).order_by(Topic.display_order).all(),
+        topic_categories=TOPIC_CATEGORIES,
         announcements=Announcement.query.filter_by(module_id=module.id).order_by(
             Announcement.is_pinned.desc(), Announcement.created_at.desc()).all(),
         resources=Resource.query.filter_by(module_id=module.id).order_by(Resource.created_at.desc()).all(),
@@ -385,9 +498,50 @@ def delete_topic(module_id, topic_id):
     if not _assigned_module(module_id):
         abort(403)
     topic = Topic.query.filter_by(id=topic_id, module_id=module_id).first_or_404()
-    db.session.delete(topic)
+    topic.is_published = False
+    topic.status = "archived"
+    record_audit(
+        "topic.archived", "Topic", target_id=topic.id, target_label=topic.title,
+        department_id=module_id and topic.module.semester.nta_level.programme.department_id,
+    )
     db.session.commit()
-    flash("Curriculum topic removed.", "info")
+    flash("Curriculum topic archived. Existing resources and history were preserved.", "info")
+    return redirect(url_for("lecturer.module_content", module_id=module_id))
+
+
+@lecturer_bp.route("/module/<int:module_id>/topics/<int:topic_id>/update", methods=["POST"])
+def update_topic(module_id, topic_id):
+    if not _assigned_module(module_id):
+        abort(403)
+    topic = Topic.query.filter_by(id=topic_id, module_id=module_id).first_or_404()
+    title = " ".join((request.form.get("title") or "").split())
+    status = request.form.get("status") or "planned"
+    category = request.form.get("category") or "concept"
+    if not title:
+        flash("A topic title is required.", "error")
+    elif status not in {"planned", "currently_teaching", "completed", "revision"}:
+        flash("Choose a valid topic status.", "error")
+    elif category not in TOPIC_CATEGORY_KEYS:
+        flash("Choose a valid topic category.", "error")
+    else:
+        topic.title = title
+        topic.category = category
+        topic.unit_label = (request.form.get("unit_label") or "").strip()[:100] or None
+        topic.learning_outcome = (request.form.get("learning_outcome") or "").strip() or None
+        topic.description = (request.form.get("description") or "").strip() or None
+        topic.status = status
+        topic.is_published = bool(request.form.get("is_published"))
+        record_audit(
+            "topic.updated", "Topic", target_id=topic.id, target_label=topic.title,
+            department_id=topic.module.semester.nta_level.programme.department_id,
+            details={
+                "category": topic.category,
+                "status": topic.status,
+                "published": topic.is_published,
+            },
+        )
+        db.session.commit()
+        flash("Topic details updated.", "success")
     return redirect(url_for("lecturer.module_content", module_id=module_id))
 
 
@@ -448,6 +602,7 @@ def edit_resource(resource_id):
         title = (request.form.get("title") or "").strip()
         description = (request.form.get("description") or "").strip()
         resource_type = request.form.get("resource_type") or resource.resource_type
+        topic_id = request.form.get("topic_id", type=int)
         external_url = (request.form.get("external_url") or "").strip()
         verified = bool(request.form.get("verified"))
         new_file = request.files.get("file")
@@ -462,6 +617,14 @@ def edit_resource(resource_id):
 
         resource.title = title
         resource.description = description
+        if topic_id:
+            topic = Topic.query.filter_by(id=topic_id, module_id=resource.module_id).first()
+            if topic is None:
+                flash("Choose a topic that belongs to this module.", "error")
+                return redirect(url_for("lecturer.edit_resource", resource_id=resource.id))
+            resource.topic_id = topic.id
+        else:
+            resource.topic_id = None
         if resource_type in RESOURCE_TYPE_KEYS:
             resource.resource_type = resource_type
         resource.verification_status = "verified" if verified else "pending"
@@ -505,6 +668,12 @@ def edit_resource(resource_id):
                     resource_id=resource.id, chunk_index=0, content=f"{title}. {description}".strip()
                 ))
 
+            record_audit(
+                "resource.updated", "Resource", target_id=resource.id,
+                target_label=resource.title,
+                department_id=resource.module.semester.nta_level.programme.department_id,
+                details={"resource_type": resource.resource_type, "topic_id": resource.topic_id},
+            )
             db.session.commit()
         except (OSError, StorageError, ValueError):
             db.session.rollback()
@@ -527,6 +696,8 @@ def edit_resource(resource_id):
 
     return render_template(
         "lecturer/edit_resource.html", resource=resource, resource_types=RESOURCE_TYPES,
+        topics=Topic.query.filter_by(module_id=resource.module_id, is_published=True)
+        .order_by(Topic.display_order).all(),
     )
 
 
@@ -540,8 +711,93 @@ def delete_resource(resource_id):
     stored_filename = resource.stored_filename
 
     db.session.delete(resource)
+    record_audit(
+        "resource.deleted", "Resource", target_id=resource.id, target_label=title,
+        department_id=resource.module.semester.nta_level.programme.department_id,
+    )
     db.session.commit()
     if stored_filename:
         delete_resource_file(stored_filename)
     flash(f"\u201c{title}\u201d has been deleted.", "info")
     return redirect(url_for("lecturer.manage_resources"))
+
+
+# ---------------------------------------------------------------------------
+# Anonymous student questions
+# ---------------------------------------------------------------------------
+
+@lecturer_bp.route("/questions")
+def questions():
+    module_ids = [assignment.module_id for assignment in _assignments()]
+    query = AcademicQuestion.query.filter(
+        AcademicQuestion.lecturer_id == current_user.id,
+        AcademicQuestion.module_id.in_(module_ids or [-1]),
+    )
+    status = request.args.get("status") or ""
+    if status in QUESTION_STATUS_KEYS:
+        query = query.filter_by(status=status)
+    module_id = request.args.get("module_id", type=int)
+    if module_id in module_ids:
+        query = query.filter_by(module_id=module_id)
+    items = query.order_by(
+        case((AcademicQuestion.status == "new", 0),
+             (AcademicQuestion.status == "reviewing", 1), else_=2),
+        AcademicQuestion.updated_at.desc(),
+    ).all()
+    status_counts = {
+        key: AcademicQuestion.query.filter_by(
+            lecturer_id=current_user.id, status=key
+        ).count()
+        for key, _label in QUESTION_STATUSES
+    }
+    return render_template(
+        "lecturer/questions.html",
+        questions=items,
+        modules=_all_modules_for_filters(),
+        statuses=QUESTION_STATUSES,
+        selected_status=status,
+        selected_module_id=module_id,
+        status_counts=status_counts,
+    )
+
+
+@lecturer_bp.route("/questions/<int:question_id>/respond", methods=["POST"])
+def respond_to_question(question_id):
+    question = AcademicQuestion.query.filter_by(
+        id=question_id, lecturer_id=current_user.id
+    ).first_or_404()
+    if not _assigned_module(question.module_id):
+        abort(403)
+    status = request.form.get("status") or ""
+    answer = (request.form.get("answer") or "").strip()
+    if status not in QUESTION_STATUS_KEYS:
+        flash("Choose a valid question status.", "error")
+        return redirect(url_for("lecturer.questions"))
+    if status == "answered" and len(answer) < 3:
+        flash("Write an answer before marking the question as answered.", "error")
+        return redirect(url_for("lecturer.questions"))
+    if status == "will_address_in_class" and not answer:
+        answer = "Your lecturer has marked this topic for explanation in class."
+    question.status = status
+    question.answer = answer or question.answer
+    if status in {"answered", "will_address_in_class"}:
+        question.responded_at = utcnow()
+    if status == "closed":
+        question.closed_at = utcnow()
+    notify(
+        question.student,
+        "academic_question_update",
+        f"Update for private question {question.anonymous_ref}",
+        f"Your lecturer changed the question status to “{question.status_label}”. "
+        "Sign in to read the private response.",
+        target_url=f"/questions#{question.anonymous_ref}",
+    )
+    record_audit(
+        "academic_question.status_updated", "AcademicQuestion",
+        target_id=question.anonymous_ref, target_label=question.subject,
+        department_id=question.module.semester.nta_level.programme.department_id,
+        details={"status": status},
+    )
+    db.session.commit()
+    flash(f"{question.anonymous_ref} updated without revealing the student’s identity.", "success")
+    return redirect(url_for("lecturer.questions", module_id=question.module_id))
