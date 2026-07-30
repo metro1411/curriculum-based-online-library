@@ -111,6 +111,89 @@
     });
   }
 
+  function initRegistrationForm() {
+    var form = document.querySelector("[data-registration-form]");
+    if (!form) return;
+    var identity = form.querySelector("#registration_number");
+    var department = form.querySelector("[data-registration-department]");
+    var hint = form.querySelector("[data-registration-hint]");
+    var groups = form.querySelectorAll("[data-role-fields]");
+    var programme = form.querySelector("#programme_id");
+    var level = form.querySelector("#nta_level_id");
+    var semester = form.querySelector("#semester_id");
+    var labels = {
+      student: "Student",
+      lecturer: "Lecturer · Head of Department approval required",
+      department_head: "Head of Department · protected activation"
+    };
+
+    function filterOptions(select, predicate) {
+      if (!select) return;
+      Array.from(select.options).forEach(function (option, index) {
+        var visible = index === 0 || predicate(option);
+        option.hidden = !visible;
+        option.disabled = !visible;
+      });
+      if (!select.value || (select.selectedOptions[0] && select.selectedOptions[0].disabled)) {
+        select.value = "";
+      }
+    }
+
+    function syncSemesters() {
+      if (!level || !semester) return;
+      filterOptions(semester, function (option) {
+        return option.dataset.levelId === level.value;
+      });
+    }
+
+    function syncLevels() {
+      if (!programme || !level) return;
+      filterOptions(level, function (option) {
+        return option.dataset.programmeId === programme.value;
+      });
+      syncSemesters();
+    }
+
+    function syncProgrammes() {
+      if (!department || !programme) return;
+      filterOptions(programme, function (option) {
+        return option.dataset.departmentId === department.value;
+      });
+      syncLevels();
+    }
+
+    function detectedRole() {
+      var value = (identity.value || "").replace(/\s/g, "");
+      if (/^2403\d{4,6}$/.test(value)) return "student";
+      if (/^1403\d{4,6}$/.test(value)) return "lecturer";
+      if (/^5000\d{4,6}$/.test(value)) return "department_head";
+      return "";
+    }
+
+    function refreshRole() {
+      var role = detectedRole();
+      groups.forEach(function (group) {
+        var selected = group.dataset.roleFields === role;
+        group.hidden = !selected;
+        group.querySelectorAll("select,input,textarea").forEach(function (field) {
+          field.disabled = !selected;
+          field.required = selected && field.hasAttribute("data-role-required");
+        });
+      });
+      if (role === "student") syncProgrammes();
+      hint.textContent = role
+        ? "Account type detected: " + labels[role]
+        : "Enter an 8-10 digit ID: 2403 for students, 1403 for lecturers, or 5000 for the Head of Department.";
+      hint.classList.toggle("is-detected", Boolean(role));
+    }
+
+    identity.addEventListener("input", refreshRole);
+    department.addEventListener("change", syncProgrammes);
+    programme.addEventListener("change", syncLevels);
+    level.addEventListener("change", syncSemesters);
+    refreshRole();
+  }
+
   function initQuickSearch() {
     var root = document.querySelector("[data-quick-search]");
     if (!root) return;
@@ -177,7 +260,15 @@
       chat.appendChild(element); scrollToBottom(); return element;
     }
     function feedbackControls(messageId) {
-      return '<div class="ai-feedback" data-ai-feedback data-message-id="' + messageId + '"><span>Was this useful?</span><button type="button" data-rating="5">Helpful</button><button type="button" data-rating="2">Needs improvement</button><button type="button" data-unclear="true">Report unclear</button></div>';
+      return '<div class="ai-feedback" data-ai-feedback data-message-id="' + messageId + '">' +
+        '<div class="ai-feedback__prompt"><strong>Rate this answer</strong><span>Your feedback helps DIT AI improve.</span></div>' +
+        '<div class="ai-feedback__actions"><button type="button" data-rating="5">Helpful</button>' +
+        '<button type="button" data-rating="3">Partly helpful</button>' +
+        '<button type="button" data-report-toggle>Report incorrect answer</button></div>' +
+        '<div class="ai-feedback__report" data-feedback-report hidden><label>What should be corrected?</label>' +
+        '<textarea class="form-textarea" data-feedback-note rows="2" maxlength="1000" placeholder="Describe the incorrect fact, calculation, citation or missing explanation."></textarea>' +
+        '<div><button type="button" data-report-submit>Send report</button><button type="button" data-report-cancel>Cancel</button></div></div>' +
+        '<span class="ai-feedback__status" data-feedback-status aria-live="polite"></span></div>';
     }
     function actionControls() { return '<div class="chat-message-actions"><button type="button" data-copy-answer>Copy</button><button type="button" data-regenerate>↻ Regenerate</button></div>'; }
     function decorateCodeBlocks(scope) {
@@ -218,10 +309,12 @@
       sources = Array.isArray(sources) ? sources : [];
       webSources = Array.isArray(webSources) ? webSources : [];
       if (generalGuidance) {
-        var notice = document.createElement("div"); notice.className = "general-guidance-note"; notice.textContent = "No directly relevant approved resource was found. This response uses general academic guidance" + ((webSources && webSources.length) ? " with supplementary web research." : "."); body.appendChild(notice);
+        var notice = document.createElement("div"); notice.className = "general-guidance-note";
+        notice.innerHTML = "<strong>General guidance</strong><span>No directly relevant approved lecturer resource was found for this question. This answer uses general academic knowledge" + ((webSources && webSources.length) ? " supported by supplementary web research" : "") + "; confirm critical course details with your lecturer.</span>";
+        body.appendChild(notice);
       }
       if (sources && sources.length) {
-        var wrap = document.createElement("div"); wrap.className = "chat-sources"; wrap.innerHTML = "<span>Lecturer sources used</span>";
+        var wrap = document.createElement("div"); wrap.className = "chat-sources"; wrap.innerHTML = "<span>Verified lecturer resources</span>";
         sources.forEach(function (source) { var link = document.createElement("a"); link.className = "source-pill"; link.href = source.url; link.target = "_blank"; link.rel = "noopener"; link.textContent = (source.verified ? "✓ " : "") + source.title; wrap.appendChild(link); });
         body.appendChild(wrap);
       }
@@ -264,10 +357,38 @@
         .catch(function () { typing.remove(); createAssistantTurn("<p>The learning assistant could not be reached. Please try again.</p>", "", [], [], false); })
         .finally(function () { setGenerating(false); if (input) input.focus(); });
     }
-    function sendFeedback(group, rating, unclear) {
+    function sendFeedback(group, rating, unclear, note) {
       if (!group.dataset.messageId) return;
-      fetch(root.dataset.feedbackUrl, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken() }, body: JSON.stringify({ message_id: group.dataset.messageId, rating: rating, is_unclear: unclear }) })
-        .then(function (response) { return response.json(); }).then(function (data) { if (data.ok) group.innerHTML = "<span>Thank you — feedback recorded.</span>"; });
+      var payload = { message_id: group.dataset.messageId };
+      if (rating !== null && rating !== undefined) payload.rating = rating;
+      if (unclear !== null && unclear !== undefined) payload.is_unclear = unclear;
+      if (note) payload.note = note;
+      var status = group.querySelector("[data-feedback-status]");
+      var buttons = group.querySelectorAll("button");
+      buttons.forEach(function (button) { button.disabled = true; });
+      if (status) status.textContent = "Sending feedback…";
+      fetch(root.dataset.feedbackUrl, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken() }, body: JSON.stringify(payload) })
+        .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
+        .then(function (result) {
+          if (!result.ok || !result.data.ok) throw new Error(result.data.error || "Feedback could not be saved.");
+          if (rating) {
+            group.querySelectorAll("[data-rating]").forEach(function (button) {
+              button.classList.toggle("is-selected", Number(button.dataset.rating) === rating);
+            });
+          }
+          if (unclear) {
+            var panel = group.querySelector("[data-feedback-report]");
+            var field = group.querySelector("[data-feedback-note]");
+            if (panel) panel.hidden = true;
+            if (field) field.value = "";
+          }
+          if (status) status.textContent = result.data.message || "Thank you — feedback recorded.";
+        })
+        .catch(function (error) {
+          if (status) status.textContent = error.message;
+          window.showToast(error.message, "error");
+        })
+        .finally(function () { buttons.forEach(function (button) { button.disabled = false; }); });
     }
     function regenerate(turn) {
       if (!state.conversationId || state.generating) return;
@@ -294,7 +415,10 @@
     root.addEventListener("click", function (event) {
       var suggestion = event.target.closest("[data-suggest]"); if (suggestion) { sendMessage(suggestion.dataset.suggest); return; }
       var followup = event.target.closest("[data-followup]"); if (followup) { sendMessage(followup.dataset.followup); return; }
-      var feedback = event.target.closest("[data-ai-feedback] button"); if (feedback) { var group = feedback.closest("[data-ai-feedback]"); sendFeedback(group, feedback.dataset.rating ? Number(feedback.dataset.rating) : null, feedback.dataset.unclear === "true"); return; }
+      var ratingButton = event.target.closest("[data-ai-feedback] [data-rating]"); if (ratingButton) { var ratingGroup = ratingButton.closest("[data-ai-feedback]"); sendFeedback(ratingGroup, Number(ratingButton.dataset.rating), null, ""); return; }
+      var reportToggle = event.target.closest("[data-ai-feedback] [data-report-toggle]"); if (reportToggle) { var reportGroup = reportToggle.closest("[data-ai-feedback]"); var reportPanel = reportGroup.querySelector("[data-feedback-report]"); reportPanel.hidden = !reportPanel.hidden; if (!reportPanel.hidden) reportGroup.querySelector("[data-feedback-note]").focus(); return; }
+      var reportCancel = event.target.closest("[data-ai-feedback] [data-report-cancel]"); if (reportCancel) { reportCancel.closest("[data-ai-feedback]").querySelector("[data-feedback-report]").hidden = true; return; }
+      var reportSubmit = event.target.closest("[data-ai-feedback] [data-report-submit]"); if (reportSubmit) { var issueGroup = reportSubmit.closest("[data-ai-feedback]"); var issueNote = issueGroup.querySelector("[data-feedback-note]").value.trim(); if (issueNote.length < 6) { window.showToast("Please briefly describe what looks incorrect.", "warning"); return; } sendFeedback(issueGroup, 1, true, issueNote); return; }
       var copy = event.target.closest("[data-copy-answer]"); if (copy) { var answer = copy.closest("[data-assistant-turn]").querySelector(".chat-bubble--assistant"); copyText(answer.innerText).then(function () { window.showToast("Response copied.", "success"); }); return; }
       var copyCode = event.target.closest("[data-copy-code]"); if (copyCode) { var code = copyCode.closest("pre").querySelector("code"); copyText(code ? code.textContent : copyCode.closest("pre").innerText.replace("Copy code", "")).then(function () { copyCode.textContent = "Copied"; setTimeout(function () { copyCode.textContent = "Copy code"; }, 1400); }); return; }
       var regenerateButton = event.target.closest("[data-regenerate]"); if (regenerateButton) { regenerate(regenerateButton.closest("[data-assistant-turn]")); return; }
@@ -431,5 +555,5 @@
     });
   }
 
-  document.addEventListener("DOMContentLoaded", function () { initTheme(); initMobileNav(); initToasts(); initConfirmModals(); initFileDrops(); initQuickSearch(); initAIAssistant(); initCurriculumForm(); initQuestionForm(); initFlashcards(); initStudyTracker(); initDeclarativeActions(); });
+  document.addEventListener("DOMContentLoaded", function () { initTheme(); initMobileNav(); initToasts(); initConfirmModals(); initFileDrops(); initRegistrationForm(); initQuickSearch(); initAIAssistant(); initCurriculumForm(); initQuestionForm(); initFlashcards(); initStudyTracker(); initDeclarativeActions(); });
 })();

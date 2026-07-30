@@ -11,7 +11,7 @@
     </div>
     <div class="hero-actions">
       <form method="GET" class="analytics-filter"><label class="sr-only" for="days">Analytics period</label><select class="form-select" id="days" name="days" data-submit-on-change><option value="7" {{ 'selected' if days == 7 }}>Last 7 days</option><option value="30" {{ 'selected' if days == 30 }}>Last 30 days</option><option value="90" {{ 'selected' if days == 90 }}>Last 90 days</option></select></form>
-      <a href="{{ url_for('lecturer.module_content', module_id=module.id) }}" class="btn btn-secondary">{{ icons.icon('edit', size=16) }} Manage content</a>
+      <a href="{{ url_for('lecturer.module_content', module_id=module.id) }}" class="btn btn-secondary">{{ icons.icon('layers', size=16) }} Manage topics &amp; content</a>
       <a href="{{ url_for('lecturer.upload_form', module_id=module.id) }}" class="btn btn-primary">{{ icons.icon('upload', size=16) }} Add material</a>
     </div>
   </div>

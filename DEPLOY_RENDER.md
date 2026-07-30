@@ -6,7 +6,7 @@ This guide updates an existing Render + Supabase deployment without deleting the
 
 1. Right-click `metro and ruth project - ready to run.zip` and select **Extract All**.
 2. Open the extracted `metro and ruth project` folder. Do not run the application from inside the ZIP.
-3. Double-click `START_HERE.bat`, choose **1** to configure `.env`, choose **2** to test, and choose **3** to start locally at `http://127.0.0.1:5055`.
+3. Double-click `START_HERE.bat`, choose **1** to configure `.env`, choose **2** to test, and choose **3** to start locally at `http://127.0.0.1:5080`.
 4. Only continue with this deployment guide after the local test displays `PASS: 40 ... checks`.
 
 ## Before you start

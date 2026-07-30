@@ -154,8 +154,16 @@ def workspace():
             flash("That module is not assigned to your lecturer account.", "error")
             return redirect(url_for("lecturer.workspace"))
         session["lecturer_module_id"] = module_id
-        flash("Your teaching workspace is ready.", "success")
-        return redirect(url_for("lecturer.dashboard"))
+        module = db.session.get(Module, module_id)
+        destination = request.form.get("destination") or "topics"
+        if destination == "dashboard":
+            flash(f"{module.name} is now your active teaching module.", "success")
+            return redirect(url_for("lecturer.dashboard"))
+        flash(
+            f"{module.name} selected. Add, arrange and publish its topics below.",
+            "success",
+        )
+        return redirect(url_for("lecturer.module_content", module_id=module.id))
     claims = LecturerAssignment.query.filter_by(lecturer_id=current_user.id).all()
     claimed_ids = {claim.module_id for claim in claims}
     available = []
@@ -441,7 +449,7 @@ def module_content(module_id):
     if request.method == "POST":
         action = request.form.get("action")
         if action == "topic":
-            title = (request.form.get("title") or "").strip()
+            title = " ".join((request.form.get("title") or "").split())[:200]
             category = request.form.get("category") or "concept"
             if not title:
                 flash("Enter a topic title.", "error")
@@ -454,8 +462,8 @@ def module_content(module_id):
                     module_id=module.id, title=title,
                     category=category,
                     unit_label=(request.form.get("unit_label") or "").strip() or None,
-                    learning_outcome=(request.form.get("learning_outcome") or "").strip() or None,
-                    description=(request.form.get("description") or "").strip() or None,
+                    learning_outcome=(request.form.get("learning_outcome") or "").strip()[:2000] or None,
+                    description=(request.form.get("description") or "").strip()[:4000] or None,
                     status=request.form.get("status") if request.form.get("status") in {
                         "planned", "currently_teaching", "completed", "revision"
                     } else "planned",
@@ -485,7 +493,9 @@ def module_content(module_id):
 
     return render_template(
         "lecturer/module_content.html", module=module,
-        topics=Topic.query.filter_by(module_id=module.id).order_by(Topic.display_order).all(),
+        topics=Topic.query.filter_by(module_id=module.id).order_by(
+            Topic.display_order, Topic.id
+        ).all(),
         topic_categories=TOPIC_CATEGORIES,
         announcements=Announcement.query.filter_by(module_id=module.id).order_by(
             Announcement.is_pinned.desc(), Announcement.created_at.desc()).all(),
@@ -502,10 +512,57 @@ def delete_topic(module_id, topic_id):
     topic.status = "archived"
     record_audit(
         "topic.archived", "Topic", target_id=topic.id, target_label=topic.title,
-        department_id=module_id and topic.module.semester.nta_level.programme.department_id,
+        department_id=topic.module.semester.nta_level.programme.department_id,
     )
     db.session.commit()
     flash("Curriculum topic archived. Existing resources and history were preserved.", "info")
+    return redirect(url_for("lecturer.module_content", module_id=module_id))
+
+
+@lecturer_bp.route("/module/<int:module_id>/topics/<int:topic_id>/restore", methods=["POST"])
+def restore_topic(module_id, topic_id):
+    if not _assigned_module(module_id):
+        abort(403)
+    topic = Topic.query.filter_by(id=topic_id, module_id=module_id).first_or_404()
+    topic.is_published = True
+    if topic.status == "archived":
+        topic.status = "planned"
+    record_audit(
+        "topic.restored", "Topic", target_id=topic.id, target_label=topic.title,
+        department_id=topic.module.semester.nta_level.programme.department_id,
+        details={"status": topic.status, "published": True},
+    )
+    db.session.commit()
+    flash("Topic restored to the student learning path.", "success")
+    return redirect(url_for("lecturer.module_content", module_id=module_id))
+
+
+@lecturer_bp.route("/module/<int:module_id>/topics/<int:topic_id>/move", methods=["POST"])
+def move_topic(module_id, topic_id):
+    if not _assigned_module(module_id):
+        abort(403)
+    topic = Topic.query.filter_by(id=topic_id, module_id=module_id).first_or_404()
+    direction = request.form.get("direction")
+    if direction not in {"up", "down"}:
+        abort(400)
+    topics = Topic.query.filter_by(module_id=module_id).order_by(
+        Topic.display_order, Topic.id
+    ).all()
+    current_index = next(index for index, item in enumerate(topics) if item.id == topic.id)
+    target_index = current_index - 1 if direction == "up" else current_index + 1
+    if not 0 <= target_index < len(topics):
+        flash("This topic is already at the edge of the learning path.", "info")
+        return redirect(url_for("lecturer.module_content", module_id=module_id))
+    topics.insert(target_index, topics.pop(current_index))
+    for index, item in enumerate(topics, start=1):
+        item.display_order = index
+    record_audit(
+        "topic.reordered", "Topic", target_id=topic.id, target_label=topic.title,
+        department_id=topic.module.semester.nta_level.programme.department_id,
+        details={"direction": direction, "display_order": target_index + 1},
+    )
+    db.session.commit()
+    flash("Topic order updated.", "success")
     return redirect(url_for("lecturer.module_content", module_id=module_id))
 
 
@@ -527,8 +584,8 @@ def update_topic(module_id, topic_id):
         topic.title = title
         topic.category = category
         topic.unit_label = (request.form.get("unit_label") or "").strip()[:100] or None
-        topic.learning_outcome = (request.form.get("learning_outcome") or "").strip() or None
-        topic.description = (request.form.get("description") or "").strip() or None
+        topic.learning_outcome = (request.form.get("learning_outcome") or "").strip()[:2000] or None
+        topic.description = (request.form.get("description") or "").strip()[:4000] or None
         topic.status = status
         topic.is_published = bool(request.form.get("is_published"))
         record_audit(

@@ -57,7 +57,9 @@ def student_insights(student_id, module):
     views = (ResourceView.query.join(Resource)
              .filter(ResourceView.student_id == student_id, Resource.module_id == module.id)
              .all())
-    topics = Topic.query.filter_by(module_id=module.id).order_by(Topic.display_order).all()
+    topics = Topic.query.filter_by(
+        module_id=module.id, is_published=True
+    ).order_by(Topic.display_order, Topic.id).all()
     topic_counts = Counter(e.topic_id for e in events if e.topic_id)
     question_count = sum(
         1 for e in events
@@ -156,7 +158,9 @@ def lecturer_insights(module, *, lecturer_id=None, days=30):
     all_views = (ResourceView.query.join(Resource)
                  .filter(Resource.module_id == module.id).all())
     recent_views = [view for view in all_views if view.viewed_at >= since]
-    topics = Topic.query.filter_by(module_id=module.id).order_by(Topic.display_order).all()
+    topics = Topic.query.filter_by(
+        module_id=module.id, is_published=True
+    ).order_by(Topic.display_order, Topic.id).all()
     student_ids = {e.student_id for e in all_events} | {view.student_id for view in all_views}
     active_ids = {e.student_id for e in events} | {view.student_id for view in recent_views}
     active_ids &= enrolled_ids or active_ids

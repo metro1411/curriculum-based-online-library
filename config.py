@@ -145,7 +145,7 @@ class Config:
     APP_NAME = "Smart DIT Learning Hub"
     APP_TAGLINE = "Learning support, curriculum resources and actionable academic insights."
     HOST = os.environ.get("HOST", "127.0.0.1").strip() or "127.0.0.1"
-    PORT = int(os.environ.get("PORT", "5055"))
+    PORT = int(os.environ.get("PORT", "5080"))
     APP_ENV = os.environ.get("APP_ENV", "development").strip().lower()
     IS_PRODUCTION = APP_ENV == "production"
     TRUST_PROXY_HEADERS = os.environ.get("TRUST_PROXY_HEADERS", "0") == "1"

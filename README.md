@@ -21,11 +21,11 @@ After extracting the release ZIP, double-click `START_HERE.bat`. It provides the
 2. Install packages with `pip install -r requirements.txt`.
 3. Optionally set `GEMINI_API_KEY` to enable generated AI answers. The assistant uses lecturer resources first; when a module has no confident match, it can use Google Search for supplementary academic context and labels those links in the answer. Google Search grounding requires a Gemini project/key entitled for that paid capability; ordinary Gemini chat continues to work without it.
 4. Start the application with `python app.py`.
-5. Open `http://127.0.0.1:5055`.
+5. Open `http://127.0.0.1:5080`.
 
 For the complete public deployment and upgrade checklist, see [DEPLOY_RENDER.md](DEPLOY_RENDER.md).
 
-The default address is `127.0.0.1:5055`. If it is unavailable, choose another local port without changing source code, for example: `PORT=5060 python app.py` (PowerShell: `$env:PORT=5060; python app.py`).
+The default address is `127.0.0.1:5080`. If it is unavailable, choose another local port without changing source code, for example: `PORT=5090 python app.py` (PowerShell: `$env:PORT=5090; python app.py`).
 
 On Windows, double-click `run_local.bat` for the same setup-and-start process. To run the isolated functional verification before starting the app, double-click `test_app.bat`; it checks login, curriculum versioning, module claims, anonymous questions, notifications, ten-minute streak enforcement, deactivation, audit logs, resource management, API access, AI formatting, security headers and the health endpoint without changing your seeded data.
 

@@ -357,19 +357,34 @@ def feedback():
         rating = int(data.get("rating")) if data.get("rating") is not None else None
     except (TypeError, ValueError):
         rating = None
-    unclear = bool(data.get("is_unclear")) if hasattr(data, "get") else False
-    note = (data.get("note") or "").strip()[:1000] if hasattr(data, "get") else ""
-    message = AIMessage.query.get_or_404(message_id)
+    has_issue_flag = "is_unclear" in data
+    unclear = data.get("is_unclear") is True
+    note = (data.get("note") or "").strip()[:1000]
+    message = db.session.get(AIMessage, message_id) if message_id else None
+    if message is None:
+        abort(404)
     if message.conversation.student_id != current_user.id or message.role != "assistant":
         abort(403)
     if rating not in (None, 1, 2, 3, 4, 5):
         return jsonify(ok=False, error="Rating must be between 1 and 5."), 400
-    db.session.add(AIAnswerFeedback(
-        message_id=message.id, student_id=current_user.id, rating=rating,
-        is_unclear=unclear, note=note or None,
-    ))
+    if rating is None and not has_issue_flag:
+        return jsonify(ok=False, error="Choose a rating or describe an answer issue."), 400
+    answer_feedback = AIAnswerFeedback.query.filter_by(
+        message_id=message.id, student_id=current_user.id
+    ).order_by(AIAnswerFeedback.id.desc()).first()
+    if answer_feedback is None:
+        answer_feedback = AIAnswerFeedback(message_id=message.id, student_id=current_user.id)
+        db.session.add(answer_feedback)
+    if rating is not None:
+        answer_feedback.rating = rating
+    if has_issue_flag:
+        answer_feedback.is_unclear = unclear
+        answer_feedback.note = note or None
     db.session.commit()
-    return jsonify(ok=True)
+    return jsonify(
+        ok=True,
+        message="Issue report sent for review." if unclear else "Thank you — your rating was recorded.",
+    )
 
 
 @ai_bp.route("/conversations/<int:conversation_id>/delete", methods=["POST"])

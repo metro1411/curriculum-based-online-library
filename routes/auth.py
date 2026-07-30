@@ -188,16 +188,18 @@ def register():
                                            levels=levels, semesters=semesters)
                 department, programme, level, semester, academic_year = placement
             elif role == "lecturer":
-                department = db.session.get(Department, request.form.get("department_id", type=int))
+                department_id = request.form.get("department_id", type=int)
+                department = db.session.get(Department, department_id) if department_id else None
                 if not department or not department.is_active:
-                    flash("Choose the Electrical Engineering department for your request.", "error")
+                    flash("Choose an active department for your lecturer request.", "error")
                     return render_template("auth/register.html", departments=departments, programmes=programmes,
                                            levels=levels, semesters=semesters)
             else:
-                department = next((item for item in departments if item.slug == "electrical-engineering"), None)
+                department_id = request.form.get("department_id", type=int)
+                department = db.session.get(Department, department_id) if department_id else None
                 activation_code = request.form.get("hod_activation_code") or ""
-                if department is None:
-                    flash("The Electrical Engineering department has not been set up yet. Contact the system owner.", "error")
+                if department is None or not department.is_active:
+                    flash("Choose an active department for the Head of Department account.", "error")
                     return render_template("auth/register.html", departments=departments, programmes=programmes,
                                            levels=levels, semesters=semesters)
                 existing_head = User.query.filter_by(role="department_head", department_id=department.id).first()
@@ -206,7 +208,7 @@ def register():
                     return render_template("auth/register.html", departments=departments, programmes=programmes,
                                            levels=levels, semesters=semesters)
                 if existing_head:
-                    flash("A Head of Department account is already active for Electrical Engineering.", "error")
+                    flash("A Head of Department account already exists for the selected department.", "error")
                     return render_template("auth/register.html", departments=departments, programmes=programmes,
                                            levels=levels, semesters=semesters)
 

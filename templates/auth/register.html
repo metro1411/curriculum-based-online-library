@@ -8,25 +8,31 @@
     <h1>Create your private learning account</h1>
     <p>Your ID number sets your account type automatically. Your progress, resources, goals and AI chats stay private.</p>
   </div>
-  <form method="POST" class="card card-pad registration-form" novalidate data-registration-form>
+  <form method="POST" class="card card-pad registration-form" data-registration-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="registration-role-hint" data-registration-hint>Enter an 8-10 digit ID: 2403 for students, 1403 for lecturers, or 5000 for the Head of Department.</div>
     <div class="form-grid form-grid--two">
-      <div class="form-group"><label class="form-label" for="registration_number">Registration / staff ID</label><input class="form-input" id="registration_number" name="registration_number" inputmode="numeric" pattern="[0-9]{8,10}" minlength="8" maxlength="10" required placeholder="2403xxxx"></div>
-      <div class="form-group"><label class="form-label" for="full_name">Full name</label><input class="form-input" id="full_name" name="full_name" required autocomplete="name" placeholder="Your full name"></div>
-      <div class="form-group"><label class="form-label" for="email">Email address</label><input class="form-input" id="email" name="email" type="email" required autocomplete="email" placeholder="you@example.com"></div>
+      <div class="form-group"><label class="form-label" for="registration_number">Registration / staff ID</label><input class="form-input" id="registration_number" name="registration_number" value="{{ request.form.get('registration_number', '') }}" inputmode="numeric" pattern="[0-9]{8,10}" minlength="8" maxlength="10" required placeholder="2403xxxx"></div>
+      <div class="form-group"><label class="form-label" for="full_name">Full name</label><input class="form-input" id="full_name" name="full_name" value="{{ request.form.get('full_name', '') }}" required autocomplete="name" placeholder="Your full name"></div>
+      <div class="form-group"><label class="form-label" for="email">Email address</label><input class="form-input" id="email" name="email" type="email" value="{{ request.form.get('email', '') }}" required autocomplete="email" placeholder="you@example.com"></div>
+      <div class="form-group">
+        <label class="form-label" for="department_id">Department</label>
+        <select class="form-select" id="department_id" name="department_id" required data-registration-department>
+          <option value="">Choose your department</option>
+          {% for item in departments %}<option value="{{ item.id }}" {% if request.form.get('department_id') == item.id|string %}selected{% endif %}>{{ item.name }}</option>{% endfor %}
+        </select>
+      </div>
       <div class="form-group"><label class="form-label" for="password">Password</label><input class="form-input" id="password" name="password" type="password" required minlength="12" autocomplete="new-password" placeholder="At least 12 characters"></div>
       <div class="form-group"><label class="form-label" for="password_confirm">Confirm password</label><input class="form-input" id="password_confirm" name="password_confirm" type="password" required minlength="12" autocomplete="new-password" placeholder="Repeat your password"></div>
     </div>
 
     <fieldset class="registration-fields" data-role-fields="student" hidden>
       <legend>Your academic placement</legend>
-      <p class="form-help">This keeps your dashboard and exploration inside your Electrical Engineering programme.</p>
+      <p class="form-help">These details connect you to the correct curriculum, modules and semester.</p>
       <div class="form-grid form-grid--two">
-        <div class="form-group"><label class="form-label" for="department_id">Department</label><select class="form-select" id="department_id" name="department_id">{% for item in departments %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></div>
-        <div class="form-group"><label class="form-label" for="programme_id">Programme</label><select class="form-select" id="programme_id" name="programme_id">{% for item in programmes %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></div>
-        <div class="form-group"><label class="form-label" for="nta_level_id">NTA level</label><select class="form-select" id="nta_level_id" name="nta_level_id">{% for item in levels %}<option value="{{ item.id }}" data-programme-id="{{ item.programme_id }}">{{ item.label }} - {{ item.programme.name }}</option>{% endfor %}</select></div>
-        <div class="form-group"><label class="form-label" for="semester_id">Semester</label><select class="form-select" id="semester_id" name="semester_id">{% for item in semesters %}<option value="{{ item.id }}" data-level-id="{{ item.nta_level_id }}">{{ item.label }} - {{ item.nta_level.label }}</option>{% endfor %}</select></div>
+        <div class="form-group"><label class="form-label" for="programme_id">Programme</label><select class="form-select" id="programme_id" name="programme_id" data-role-required><option value="">Choose a programme</option>{% for item in programmes %}<option value="{{ item.id }}" data-department-id="{{ item.department_id }}" {% if request.form.get('programme_id') == item.id|string %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></div>
+        <div class="form-group"><label class="form-label" for="nta_level_id">NTA level</label><select class="form-select" id="nta_level_id" name="nta_level_id" data-role-required><option value="">Choose an NTA level</option>{% for item in levels %}<option value="{{ item.id }}" data-programme-id="{{ item.programme_id }}" {% if request.form.get('nta_level_id') == item.id|string %}selected{% endif %}>{{ item.label }} - {{ item.programme.name }}</option>{% endfor %}</select></div>
+        <div class="form-group"><label class="form-label" for="semester_id">Semester</label><select class="form-select" id="semester_id" name="semester_id" data-role-required><option value="">Choose a semester</option>{% for item in semesters %}<option value="{{ item.id }}" data-level-id="{{ item.nta_level_id }}" {% if request.form.get('semester_id') == item.id|string %}selected{% endif %}>{{ item.label }} - {{ item.nta_level.label }}</option>{% endfor %}</select></div>
       </div>
     </fieldset>
 
@@ -34,78 +40,18 @@
       <legend>Lecturer request</legend>
       <p class="form-help">Your lecturer account remains pending until the Head of Department reviews it.</p>
       <div class="form-grid form-grid--two">
-        <div class="form-group"><label class="form-label" for="lecturer_department_id">Department</label><select class="form-select" id="lecturer_department_id" name="department_id">{% for item in departments %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></div>
-        <div class="form-group"><label class="form-label" for="teaching_interest">Teaching area</label><input class="form-input" id="teaching_interest" name="teaching_interest" placeholder="e.g. Control Engineering"></div>
+        <div class="form-group"><label class="form-label" for="teaching_interest">Teaching area</label><input class="form-input" id="teaching_interest" name="teaching_interest" value="{{ request.form.get('teaching_interest', '') }}" placeholder="e.g. Control Engineering"></div>
       </div>
-      <div class="form-group"><label class="form-label" for="request_note">Short note for the Head of Department</label><textarea class="form-textarea" id="request_note" name="request_note" rows="3" placeholder="Relevant teaching responsibility or module request"></textarea></div>
+      <div class="form-group"><label class="form-label" for="request_note">Short note for the Head of Department</label><textarea class="form-textarea" id="request_note" name="request_note" rows="3" placeholder="Relevant teaching responsibility or module request">{{ request.form.get('request_note', '') }}</textarea></div>
     </fieldset>
 
     <fieldset class="registration-fields" data-role-fields="department_head" hidden>
       <legend>Protected Department Head activation</legend>
       <p class="form-help">A Department Head account requires the private activation code configured by the system owner.</p>
-      <div class="form-group"><label class="form-label" for="hod_activation_code">Activation code</label><input class="form-input" id="hod_activation_code" name="hod_activation_code" type="password" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label" for="hod_activation_code">Activation code</label><input class="form-input" id="hod_activation_code" name="hod_activation_code" type="password" autocomplete="off" data-role-required></div>
     </fieldset>
     <button class="btn btn-primary btn-lg" type="submit">{{ icons.icon('arrow-right', size=17) }} Create account</button>
     <p class="mt-4 text-muted" style="font-size:.84rem;">Already registered? <a href="{{ url_for('auth.login') }}">Sign in instead</a>.</p>
   </form>
 </div>
-{% endblock %}
-{% block extra_scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  const id = document.querySelector('#registration_number');
-  const hint = document.querySelector('[data-registration-hint]');
-  const groups = document.querySelectorAll('[data-role-fields]');
-  const programme = document.querySelector('#programme_id');
-  const level = document.querySelector('#nta_level_id');
-  const semester = document.querySelector('#semester_id');
-  const labels = {
-    student: 'Student',
-    lecturer: 'Lecturer - approval required',
-    department_head: 'Head of Department - protected activation'
-  };
-  function showOptions(select, predicate) {
-    Array.from(select.options).forEach(function (option) {
-      const visible = predicate(option);
-      option.hidden = !visible;
-      option.disabled = !visible;
-    });
-    const selected = select.options[select.selectedIndex];
-    if (!selected || selected.disabled) {
-      const firstVisible = Array.from(select.options).find(function (option) { return !option.disabled; });
-      if (firstVisible) select.value = firstVisible.value;
-    }
-  }
-  function syncAcademicOptions() {
-    if (!programme || !level || !semester) return;
-    const visibleSemesterLevels = new Set(Array.from(semester.options).map(function (option) { return option.dataset.levelId; }));
-    showOptions(level, function (option) {
-      return option.dataset.programmeId === programme.value && visibleSemesterLevels.has(option.value);
-    });
-    showOptions(semester, function (option) { return option.dataset.levelId === level.value; });
-  }
-  function refresh() {
-    const value = (id.value || '').replace(/\s/g, '');
-    let role = '';
-    if (/^2403\d{4,6}$/.test(value)) role = 'student';
-    else if (/^1403\d{4,6}$/.test(value)) role = 'lecturer';
-    else if (/^5000\d{4,6}$/.test(value)) role = 'department_head';
-    groups.forEach(function (group) {
-      const selected = group.dataset.roleFields === role;
-      group.hidden = !selected;
-      group.querySelectorAll('select,input,textarea').forEach(function (field) {
-        field.required = selected;
-        field.disabled = !selected;
-      });
-    });
-    if (role === 'student') syncAcademicOptions();
-    hint.textContent = role ? 'Account type detected: ' + labels[role]
-      : 'Enter an 8-10 digit ID: 2403 for students, 1403 for lecturers, or 5000 for the Head of Department.';
-  }
-  programme.addEventListener('change', syncAcademicOptions);
-  level.addEventListener('change', syncAcademicOptions);
-  id.addEventListener('input', refresh);
-  refresh();
-});
-</script>
 {% endblock %}

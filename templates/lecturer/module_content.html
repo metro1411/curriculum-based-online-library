@@ -21,7 +21,7 @@
   <div class="content-layout content-layout--wide">
     <section class="card card-pad content-layout__primary">
       <div class="section-header">
-        <div><span class="section-kicker">Module plan</span><h2>Topics</h2></div>
+        <div><span class="section-kicker">Selected module plan</span><h2>Topics for {{ module.code or module.name }}</h2><p class="section-desc">Topics created here belong only to {{ module.name }}. Published topics appear for eligible students inside this module.</p></div>
         <span class="badge badge-teal">{{ topics|length }}</span>
       </div>
 
@@ -56,8 +56,12 @@
             <input class="form-input" id="new-title" name="title" maxlength="200" required placeholder="e.g. Frequency response">
           </div>
           <div class="form-group">
-            <label class="form-label" for="new-outcome">Learning outcome</label>
+            <label class="form-label" for="new-outcome">Learning objective</label>
             <textarea class="form-textarea" id="new-outcome" name="learning_outcome" rows="2" placeholder="What should students understand or be able to do?"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="new-description">Topic description</label>
+            <textarea class="form-textarea" id="new-description" name="description" rows="3" maxlength="4000" placeholder="Give students a clear overview of what this topic covers."></textarea>
           </div>
           <div class="topic-form__footer">
             <label class="form-check"><input type="checkbox" name="is_published" checked> Visible to students</label>
@@ -78,11 +82,22 @@
                 {% if not topic.is_published %}<span class="badge badge-neutral">Hidden</span>{% endif %}
               </div>
               <h3>{{ topic.unit_label ~ ' · ' if topic.unit_label }}{{ topic.title }}</h3>
-              {% if topic.learning_outcome or topic.description %}<p>{{ topic.learning_outcome or topic.description }}</p>{% endif %}
+              {% if topic.description %}<p>{{ topic.description }}</p>{% endif %}
+              {% if topic.learning_outcome %}<p class="topic-editor-card__objective"><strong>Learning objective:</strong> {{ topic.learning_outcome }}</p>{% endif %}
             </div>
           </div>
 
           <div class="topic-editor-card__actions">
+            <div class="topic-order-actions" aria-label="Reorder {{ topic.title }}">
+              <form method="POST" action="{{ url_for('lecturer.move_topic', module_id=module.id, topic_id=topic.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="direction" value="up">
+                <button class="btn btn-ghost btn-icon" aria-label="Move topic up" title="Move up" {{ 'disabled' if loop.first }}>{{ icons.icon('arrow-up', size=14) }}</button>
+              </form>
+              <form method="POST" action="{{ url_for('lecturer.move_topic', module_id=module.id, topic_id=topic.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="direction" value="down">
+                <button class="btn btn-ghost btn-icon" aria-label="Move topic down" title="Move down" {{ 'disabled' if loop.last }}>{{ icons.icon('arrow-down', size=14) }}</button>
+              </form>
+            </div>
             <details class="inline-editor">
               <summary>{{ icons.icon('edit', size=14) }} Edit</summary>
               <form method="POST" action="{{ url_for('lecturer.update_topic', module_id=module.id, topic_id=topic.id) }}" class="topic-form">
@@ -113,8 +128,12 @@
                   <input class="form-input" id="title-{{ topic.id }}" name="title" maxlength="200" value="{{ topic.title }}" required>
                 </div>
                 <div class="form-group">
-                  <label class="form-label" for="outcome-{{ topic.id }}">Learning outcome</label>
+                  <label class="form-label" for="outcome-{{ topic.id }}">Learning objective</label>
                   <textarea class="form-textarea" id="outcome-{{ topic.id }}" name="learning_outcome" rows="2">{{ topic.learning_outcome or '' }}</textarea>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="description-{{ topic.id }}">Topic description</label>
+                  <textarea class="form-textarea" id="description-{{ topic.id }}" name="description" rows="3" maxlength="4000">{{ topic.description or '' }}</textarea>
                 </div>
                 <div class="topic-form__footer">
                   <label class="form-check"><input type="checkbox" name="is_published" {{ 'checked' if topic.is_published }}> Visible to students</label>
@@ -125,7 +144,12 @@
             {% if topic.is_published %}
             <form method="POST" action="{{ url_for('lecturer.delete_topic', module_id=module.id, topic_id=topic.id) }}" data-confirm="Archive this topic? Its resources and history will remain available.">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-ghost btn-sm">Archive</button>
+              <button class="btn btn-ghost btn-sm">Archive safely</button>
+            </form>
+            {% else %}
+            <form method="POST" action="{{ url_for('lecturer.restore_topic', module_id=module.id, topic_id=topic.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-secondary btn-sm">Restore &amp; publish</button>
             </form>
             {% endif %}
           </div>

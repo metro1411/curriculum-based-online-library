@@ -55,8 +55,8 @@ import storage_backend  # noqa: E402
 from app import app  # noqa: E402
 from extensions import db  # noqa: E402
 from models import (  # noqa: E402
-    AcademicQuestion, AcademicYear, AuditLog, LearningEvent, LecturerAssignment,
-    LecturerRequest, Module, Notification, Resource, ResourceStudySession,
+    AcademicQuestion, AcademicYear, AIAnswerFeedback, AuditLog,
+    LearningEvent, LecturerAssignment, LecturerRequest, Module, Notification, Resource, ResourceStudySession,
     StudentPreference, Topic, User, utcnow,
 )
 
@@ -141,6 +141,20 @@ def main():
     answer_data = answer.get_json()
     if not answer_data.get("ok") or "math-inline" not in answer_data.get("answer_html", ""):
         raise AssertionError("AI answer payload was not formatted as expected")
+    answer_message_id = answer_data.get("message_id")
+    expect(student.post("/ai/feedback", json={
+        "message_id": answer_message_id, "rating": 3,
+    }), 200, "AI answer rating")
+    expect(student.post("/ai/feedback", json={
+        "message_id": answer_message_id, "rating": 1, "is_unclear": True,
+        "note": "The final equation sign should be checked.",
+    }), 200, "AI incorrect-answer report")
+    with app.app_context():
+        feedback_rows = AIAnswerFeedback.query.filter_by(message_id=answer_message_id).all()
+        if len(feedback_rows) != 1:
+            raise AssertionError("AI feedback updates created duplicate records")
+        if not feedback_rows[0].is_unclear or "equation sign" not in (feedback_rows[0].note or ""):
+            raise AssertionError("AI incorrect-answer report did not persist")
     with app.app_context():
         api_event_count = LearningEvent.query.filter_by(
             event_type="academic_ai_question", qualifies_for_streak=True
@@ -164,7 +178,10 @@ def main():
     student.get("/logout")
     lecturer = app.test_client()
     login(lecturer, "lecturer")
-    expect(lecturer.get("/lecturer/workspace"), 200, "lecturer workspace")
+    lecturer_workspace = lecturer.get("/lecturer/workspace")
+    expect(lecturer_workspace, 200, "lecturer workspace")
+    if b"Select &amp; manage topics" not in lecturer_workspace.data:
+        raise AssertionError("lecturer workspace did not expose the selected-module topic action")
     expect(lecturer.get("/lecturer/resources"), 200, "resource management")
 
     with app.app_context():
@@ -172,8 +189,44 @@ def main():
         if assignment is None:
             raise AssertionError("seed data contains no lecturer-module assignment")
         upload_module_id = assignment.module_id
+        lecturer_user = User.query.filter_by(email="lecturer@dit.ac.tz").one()
+        assigned_ids = {
+            item.module_id for item in LecturerAssignment.query.filter_by(
+                lecturer_id=lecturer_user.id, status="approved"
+            ).all()
+        }
+        unassigned_module = Module.query.filter(
+            Module.id.notin_(assigned_ids or [-1])
+        ).first()
+        unassigned_module_id = unassigned_module.id if unassigned_module else None
 
-    expect(lecturer.post("/lecturer/workspace", data={"module_id": upload_module_id}), 302, "lecturer workspace selection")
+    if unassigned_module_id:
+        expect(
+            lecturer.post(f"/lecturer/module/{unassigned_module_id}/content", data={
+                "action": "topic", "title": "Must not be created",
+            }),
+            403,
+            "unapproved lecturer topic guard",
+        )
+
+    topic_destination = lecturer.post(
+        "/lecturer/workspace",
+        data={"module_id": upload_module_id, "destination": "topics"},
+        follow_redirects=False,
+    )
+    expect(topic_destination, 302, "lecturer module-to-topic selection")
+    if not topic_destination.headers["Location"].endswith(
+        f"/lecturer/module/{upload_module_id}/content"
+    ):
+        raise AssertionError("selected lecturer module did not open its topic manager")
+    dashboard_destination = lecturer.post(
+        "/lecturer/workspace",
+        data={"module_id": upload_module_id, "destination": "dashboard"},
+        follow_redirects=False,
+    )
+    expect(dashboard_destination, 302, "lecturer module-to-dashboard selection")
+    if not dashboard_destination.headers["Location"].endswith("/lecturer/dashboard"):
+        raise AssertionError("lecturer analytics dashboard option stopped working")
     expect(lecturer.get("/lecturer/dashboard"), 200, "lecturer dashboard")
     topic_create = lecturer.post(
         f"/lecturer/module/{upload_module_id}/content",
@@ -184,6 +237,7 @@ def main():
             "status": "planned",
             "title": "Category Workflow Verification",
             "learning_outcome": "Apply the concept during a guided laboratory activity.",
+            "description": "A practical introduction to the category workflow.",
             "is_published": "on",
         },
         follow_redirects=False,
@@ -196,6 +250,25 @@ def main():
         categorised_topic_id = categorised_topic.id
         if categorised_topic.category != "practical" or categorised_topic.category_label != "Practical / Lab":
             raise AssertionError("topic category did not persist")
+        if not categorised_topic.description or not categorised_topic.learning_outcome:
+            raise AssertionError("topic description and learning objective did not persist")
+        if unassigned_module_id and Topic.query.filter_by(
+            module_id=unassigned_module_id, title="Category Workflow Verification"
+        ).count():
+            raise AssertionError("topic leaked into a module the lecturer did not select")
+        topic_count = Topic.query.filter_by(module_id=upload_module_id).count()
+    if topic_count > 1:
+        expect(lecturer.post(
+            f"/lecturer/module/{upload_module_id}/topics/{categorised_topic_id}/move",
+            data={"direction": "up"},
+            follow_redirects=False,
+        ), 302, "lecturer topic reorder")
+        with app.app_context():
+            reordered = Topic.query.filter_by(module_id=upload_module_id).order_by(
+                Topic.display_order, Topic.id
+            ).all()
+            if reordered[-1].id == categorised_topic_id:
+                raise AssertionError("topic reorder did not change the learning-path position")
     topic_workspace = lecturer.get(f"/lecturer/module/{upload_module_id}/content")
     expect(topic_workspace, 200, "lecturer topic category workspace")
     if b"Practical / Lab" not in topic_workspace.data:
@@ -208,13 +281,17 @@ def main():
             "status": "currently_teaching",
             "title": "Category Workflow Verification",
             "learning_outcome": "Apply the concept in a guided tutorial.",
+            "description": "A revised guided tutorial description.",
             "is_published": "on",
         },
         follow_redirects=False,
     ), 302, "lecturer topic category update")
     with app.app_context():
-        if db.session.get(Topic, categorised_topic_id).category != "tutorial":
+        updated_topic = db.session.get(Topic, categorised_topic_id)
+        if updated_topic.category != "tutorial":
             raise AssertionError("updated topic category did not persist")
+        if updated_topic.description != "A revised guided tutorial description.":
+            raise AssertionError("updated topic description did not persist")
     expect(lecturer.get(f"/lecturer/upload/module/{upload_module_id}"), 200, "upload form")
     upload = lecturer.post(
         f"/lecturer/upload/module/{upload_module_id}",
@@ -278,9 +355,32 @@ def main():
         level = User.query.filter_by(email="student@dit.ac.tz").one().nta_level
         semester = User.query.filter_by(email="student@dit.ac.tz").one().semester
 
+    expect(lecturer.post(
+        f"/lecturer/module/{upload_module_id}/topics/{categorised_topic_id}/delete",
+        follow_redirects=False,
+    ), 302, "safe topic archive")
+    archived_student_view = student_again.get(f"/module/{upload_module_id}")
+    if b"Category Workflow Verification" in archived_student_view.data:
+        raise AssertionError("archived topic remained visible to students")
+    archived_insights = student_again.get(f"/learning-insights?module_id={upload_module_id}")
+    if b"Category Workflow Verification" in archived_insights.data:
+        raise AssertionError("archived topic remained in student progress metrics")
+    expect(lecturer.post(
+        f"/lecturer/module/{upload_module_id}/topics/{categorised_topic_id}/restore",
+        follow_redirects=False,
+    ), 302, "topic restore and publish")
+    if b"Category Workflow Verification" not in student_again.get(f"/module/{upload_module_id}").data:
+        raise AssertionError("restored topic was not republished to students")
+
     # Registration turns the agreed 2403/1403/5000 ID rules into real account
     # states. These requests use a disposable database only.
     registration = app.test_client()
+    registration_page = registration.get("/register")
+    expect(registration_page, 200, "registration form")
+    if b"<script>" in registration_page.data:
+        raise AssertionError("registration form contains CSP-blocked inline JavaScript")
+    if registration_page.data.count(b'name="department_id"') != 1:
+        raise AssertionError("registration must present one common department selector")
     new_student = registration.post("/register", data={
         "registration_number": "24030002", "full_name": "Student Two",
         "email": "student.two@example.test", "password": "StudentTwo@123",
@@ -326,7 +426,8 @@ def main():
     hod_registration = registration.post("/register", data={
         "registration_number": "50000001", "full_name": "Electrical Head",
         "email": "hod@example.test", "password": "DepartmentHead@123",
-        "password_confirm": "DepartmentHead@123", "hod_activation_code": "isolated-test-hod-code",
+        "password_confirm": "DepartmentHead@123", "department_id": department.id,
+        "hod_activation_code": "isolated-test-hod-code",
     }, follow_redirects=False)
     expect(hod_registration, 302, "HOD activation")
     hod = app.test_client()
@@ -516,6 +617,24 @@ def main():
     )
     if "study-flashcard-deck" not in flashcard_html or "data-flashcard-toggle" not in flashcard_html:
         raise AssertionError("AI flashcards were not rendered as interactive teal cards")
+    mathematics_html = ai_engine.render_ai_answer(
+        r"""## Worked mathematics
+
+\[
+\sum_{i=1}^{n} x_i \leq \sqrt{n}
+\]
+
+\[
+\begin{bmatrix}1 & 2 \\ 3 & 4\end{bmatrix}
+\]
+
+The ratio is \frac{1}{2}.""",
+        "solve",
+    )
+    if "\\sum" in mathematics_html or "\\frac" in mathematics_html or "\\begin" in mathematics_html:
+        raise AssertionError("raw LaTeX leaked into an AI answer")
+    if "∑" not in mathematics_html or "≤" not in mathematics_html or "math-matrix" not in mathematics_html:
+        raise AssertionError("AI mathematics did not render readable signs and matrices")
 
     # Conversations remain scoped to the student who owns them.
     generated_private = {**generated, "answer_text": "Private learner answer", "answer_html": "<p>Private learner answer</p>"}
@@ -533,7 +652,7 @@ def main():
         raise AssertionError("one student could read another student's AI conversation")
 
     TEST_UPLOADS.cleanup()
-    print("PASS: 75 student, lecturer, HOD, curriculum, topic-category, privacy, streak, AI, security and notification checks")
+    print("PASS: registration, AI presentation/feedback, topic lifecycle, privacy, streak, curriculum, security and notification checks")
 
 
 if __name__ == "__main__":

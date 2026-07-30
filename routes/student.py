@@ -248,7 +248,7 @@ def search():
 
 @student_bp.route("/topic/<int:topic_id>/study", methods=["POST"])
 def study_topic(topic_id):
-    topic = Topic.query.get_or_404(topic_id)
+    topic = Topic.query.filter_by(id=topic_id, is_published=True).first_or_404()
     if not _student_can_access_module(topic.module):
         abort(403)
     record_learning_event(
@@ -400,7 +400,9 @@ def module_resources(module_id):
         .order_by(Resource.created_at.desc())
         .all()
     )
-    topics = Topic.query.filter_by(module_id=module.id).order_by(Topic.display_order).all()
+    topics = Topic.query.filter_by(
+        module_id=module.id, is_published=True
+    ).order_by(Topic.display_order, Topic.id).all()
     grouped = OrderedDict()
     for key, label in RESOURCE_TYPES:
         items = [r for r in resources if r.resource_type == key]

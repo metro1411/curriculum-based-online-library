@@ -5,7 +5,7 @@
 3. Choose **1** to create and edit `.env`. This file must be named exactly `.env`, not `.env.txt`.
 4. Choose **2** to run the automated check. After it passes, choose **3** to start the website.
 
-The local address is `http://127.0.0.1:5055`.
+The local address is `http://127.0.0.1:5080`.
 
 ## What to put in `.env`
 

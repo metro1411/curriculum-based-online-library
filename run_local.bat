@@ -26,7 +26,7 @@ call .venv\Scripts\python.exe -m pip install --disable-pip-version-check -r requ
 if errorlevel 1 goto :error
 
 echo.
-echo Smart DIT Learning Hub is starting at http://127.0.0.1:5055
+echo Smart DIT Learning Hub is starting at http://127.0.0.1:5080
 echo Use Ctrl+C in this window to stop the website.
 call .venv\Scripts\python.exe app.py
 exit /b %errorlevel%

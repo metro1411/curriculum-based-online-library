@@ -3,14 +3,42 @@
 {% block title %}Teaching modules | {{ app_name }}{% endblock %}
 {% block content %}
 <div class="container fade-in">
-  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">Lecturer workspace</span><h1>Your modules</h1><p>Open an approved module or request access to another.</p></div><a class="btn btn-secondary" href="{{ url_for('lecturer.questions') }}">Student questions</a></div>
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">Lecturer workspace</span><h1>Your modules</h1><p>Select an approved module to add its topics, learning objectives and teaching resources.</p></div><a class="btn btn-secondary" href="{{ url_for('lecturer.questions') }}">Student questions</a></div>
   <div class="workspace-grid">
     <section class="card card-pad">
-      <div class="section-header"><div><span class="section-kicker">Approved</span><h2>Open module</h2></div><span class="badge badge-teal">{{ assignments|length }}</span></div>
+      <div class="section-header"><div><span class="section-kicker">Approved</span><h2>Select teaching module</h2></div><span class="badge badge-teal">{{ assignments|length }}</span></div>
       {% if assignments %}
-      <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="form-group"><label class="form-label" for="module_id">Approved module</label><select class="form-select" id="module_id" name="module_id" required><option value="">Select module</option>{% for assignment in assignments %}<option value="{{ assignment.module.id }}">{{ assignment.module.code or 'Code pending' }} · {{ assignment.module.name }} · {{ assignment.module.academic_year.label if assignment.module.academic_year else 'Legacy' }}</option>{% endfor %}</select></div><button class="btn btn-primary">Open teaching dashboard {{ icons.icon('arrow-right', size=16) }}</button></form>
-      <div class="approved-module-list mt-6">{% for assignment in assignments %}<article class="module-claim-summary"><span class="badge badge-teal">Approved</span><div><strong>{{ assignment.module.code or 'Code pending' }} · {{ assignment.module.name }}</strong><small>{{ assignment.module.type_label }} · {{ assignment.module.semester.nta_level.label }} · {{ assignment.module.semester.label }}</small></div></article>{% endfor %}</div>
-      {% else %}<div class="empty-state"><h3>No approved module</h3><p>Request access from the published curriculum.</p></div>{% endif %}
+      <form method="POST" class="module-selection-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+          <label class="form-label" for="module_id">Approved module</label>
+          <select class="form-select" id="module_id" name="module_id" required>
+            <option value="">Select module</option>
+            {% for assignment in assignments %}<option value="{{ assignment.module.id }}">{{ assignment.module.code or 'Code pending' }} · {{ assignment.module.name }} · {{ assignment.module.academic_year.label if assignment.module.academic_year else 'Legacy' }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="module-selection-form__actions">
+          <button class="btn btn-primary" name="destination" value="topics">{{ icons.icon('layers', size=16) }} Select &amp; manage topics</button>
+          <button class="btn btn-secondary" name="destination" value="dashboard">Open analytics dashboard</button>
+        </div>
+      </form>
+      <div class="approved-module-list mt-6">
+        {% for assignment in assignments %}
+        <article class="module-claim-summary module-claim-summary--actionable">
+          <span class="badge badge-teal">Approved</span>
+          <div>
+            <strong>{{ assignment.module.code or 'Code pending' }} · {{ assignment.module.name }}</strong>
+            <small>{{ assignment.module.type_label }} · {{ assignment.module.semester.nta_level.label }} · {{ assignment.module.semester.label }}</small>
+          </div>
+          <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="module_id" value="{{ assignment.module.id }}">
+            <button class="btn btn-ghost btn-sm" name="destination" value="topics">Manage topics {{ icons.icon('arrow-right', size=14) }}</button>
+          </form>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}<div class="empty-state"><h3>No approved module</h3><p>Request access from the published curriculum. Topic tools become available after HOD approval.</p></div>{% endif %}
     </section>
     <section class="card card-pad">
       <div class="section-header"><div><span class="section-kicker">Module claim</span><h2>Request access</h2></div></div>

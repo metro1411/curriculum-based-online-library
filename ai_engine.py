@@ -366,7 +366,9 @@ def _build_context_block(student, module, resource, retrieved):
         # so the assistant sees the module's intended scope even before a
         # matching resource chunk is retrieved.
         from models import Topic
-        topics = Topic.query.filter_by(module_id=module.id).order_by(Topic.display_order).all()
+        topics = Topic.query.filter_by(
+            module_id=module.id, is_published=True
+        ).order_by(Topic.display_order, Topic.id).all()
         if topics:
             lines.append("- Lecturer curriculum topics and outcomes:")
             for topic in topics:
@@ -425,14 +427,46 @@ def _math_html(expression, block=False):
     TeX engine. Unsupported commands are converted to plain readable text,
     rather than leaking raw LaTex into a student's answer.
     """
-    value = html.escape((expression or "").strip())
+    raw_value = (expression or "").strip()
+    matrices = {}
+
+    def render_matrix(match):
+        matrix_type = match.group(1)
+        rows = [row.strip() for row in re.split(r"\\\\", match.group(2)) if row.strip()]
+        if not rows or len(rows) > 12:
+            return match.group(0)
+        cells = [row.split("&") for row in rows]
+        if max((len(row) for row in cells), default=0) > 12:
+            return match.group(0)
+        token = f"SMARTDITMATRIX{len(matrices)}TOKEN"
+        rendered_rows = []
+        for row in cells:
+            rendered_cells = "".join(
+                f'<span class="math-matrix__cell">{_math_html(cell.strip())}</span>'
+                for cell in row
+            )
+            rendered_rows.append(f'<span class="math-matrix__row">{rendered_cells}</span>')
+        matrices[token] = (
+            f'<span class="math-matrix math-matrix--{matrix_type}" role="math">'
+            + "".join(rendered_rows)
+            + "</span>"
+        )
+        return token
+
+    raw_value = re.sub(
+        r"\\begin\{(bmatrix|pmatrix|matrix)\}(.+?)\\end\{\1\}",
+        render_matrix,
+        raw_value,
+        flags=re.S,
+    )
+    value = html.escape(raw_value)
     replacements = {
         r"\cdot": "×", r"\times": "×", r"\div": "÷", r"\pm": "±",
         r"\leq": "≤", r"\geq": "≥", r"\neq": "≠", r"\approx": "≈",
         r"\infty": "∞", r"\theta": "θ", r"\omega": "ω", r"\alpha": "α",
         r"\beta": "β", r"\gamma": "γ", r"\delta": "δ", r"\lambda": "λ",
         r"\mu": "μ", r"\pi": "π", r"\phi": "φ", r"\sigma": "σ",
-        r"\Delta": "Δ", r"\Sigma": "Σ", r"\sum": "Σ", r"\int": "∫",
+        r"\Delta": "Δ", r"\Sigma": "Σ", r"\sum": "∑", r"\int": "∫",
         r"\rightarrow": "→", r"\to": "→", r"\Rightarrow": "⇒",
     }
     for source, target in replacements.items():
@@ -488,21 +522,56 @@ def _math_html(expression, block=False):
         value = updated
 
     value = re.sub(r"\\(?:text|mathrm|operatorname)\{([^{}]*)\}", r"\1", value)
-    value = re.sub(r"([A-Za-z0-9Σ∫)])\^\{?([^{}^_]+)\}?", r"\1<sup>\2</sup>", value)
-    value = re.sub(r"([A-Za-z0-9Σ∫)])_\{?([^{}^_]+)\}?", r"\1<sub>\2</sub>", value)
+    script_base = r"([A-Za-z0-9Σ∑∫)])"
+    # Handle a base with both scripts before inserting tags, otherwise the
+    # first tag would separate the base from its second script.
+    value = re.sub(
+        script_base + r"_\{([^{}]+)\}\^\{([^{}]+)\}",
+        r"\1<sub>\2</sub><sup>\3</sup>",
+        value,
+    )
+    value = re.sub(
+        script_base + r"\^\{([^{}]+)\}_\{([^{}]+)\}",
+        r"\1<sup>\2</sup><sub>\3</sub>",
+        value,
+    )
+    value = re.sub(script_base + r"\^\{([^{}]+)\}", r"\1<sup>\2</sup>", value)
+    value = re.sub(script_base + r"_\{([^{}]+)\}", r"\1<sub>\2</sub>", value)
+    value = re.sub(script_base + r"\^([A-Za-z0-9+\-=]+)", r"\1<sup>\2</sup>", value)
+    value = re.sub(script_base + r"_([A-Za-z0-9+\-=]+)", r"\1<sub>\2</sub>", value)
     value = value.replace("\\left", "").replace("\\right", "")
     value = value.replace("{", "").replace("}", "")
     value = re.sub(r"\\([A-Za-z]+)", r"\1", value)
+    for token, matrix_html in matrices.items():
+        value = value.replace(token, matrix_html)
     tag = "div" if block else "span"
     class_name = "math-expression math-expression--block" if block else "math-expression"
     return f'<{tag} class="{class_name}">{value}</{tag}>'
 
 
 def _replace_math(text):
-    text = re.sub(r"\$\$(.+?)\$\$", lambda m: _math_html(m.group(1), block=True), text or "", flags=re.S)
-    text = re.sub(r"\\\[(.+?)\\\]", lambda m: _math_html(m.group(1), block=True), text, flags=re.S)
-    text = re.sub(r"\\\((.+?)\\\)", lambda m: _math_html(m.group(1)), text, flags=re.S)
-    return re.sub(r"(?<!\\)\$([^$\n]+)\$", lambda m: _math_html(m.group(1)), text)
+    def replace_outside_code(section):
+        section = re.sub(r"\$\$(.+?)\$\$", lambda m: _math_html(m.group(1), block=True), section, flags=re.S)
+        section = re.sub(r"\\\[(.+?)\\\]", lambda m: _math_html(m.group(1), block=True), section, flags=re.S)
+        section = re.sub(r"\\\((.+?)\\\)", lambda m: _math_html(m.group(1)), section, flags=re.S)
+        section = re.sub(r"(?<!\\)\$([^$\n]+)\$", lambda m: _math_html(m.group(1)), section)
+        # If a model omits delimiters around legacy TeX, convert the most
+        # common educational forms instead of showing commands to students.
+        section = re.sub(
+            r"\\begin\{(?:bmatrix|pmatrix|matrix)\}.+?\\end\{(?:bmatrix|pmatrix|matrix)\}",
+            lambda m: _math_html(m.group(0), block=True),
+            section,
+            flags=re.S,
+        )
+        section = re.sub(
+            r"\\(?:d?frac)\{[^{}\n]+\}\{[^{}\n]+\}|\\sqrt(?:\[[^\]]+\])?\{[^{}\n]+\}",
+            lambda m: _math_html(m.group(0)),
+            section,
+        )
+        return section
+
+    parts = re.split(r"(```.*?```)", text or "", flags=re.S)
+    return "".join(part if part.startswith("```") else replace_outside_code(part) for part in parts)
 
 
 def render_markdown(text):
@@ -511,6 +580,9 @@ def render_markdown(text):
 
 
 def render_ai_answer(raw_text, mode):
+    safe_mode = mode if mode in MODE_LABELS else DEFAULT_MODE
+    wrapper_start = f'<div class="ai-answer-document ai-answer-document--{safe_mode}">'
+    wrapper_end = "</div>"
     marker = "---ANSWERS---"
     if mode in ("quiz", "practice") and marker in raw_text:
         before, after = raw_text.split(marker, 1)
@@ -521,7 +593,7 @@ def render_ai_answer(raw_text, mode):
             f'<div class="answer-key-body">{render_markdown(after.strip())}</div>'
             "</details>"
         )
-        return html
+        return wrapper_start + html + wrapper_end
     if mode == "flashcards":
         pattern = re.compile(
             r"\*\*Front:\*\*\s*(.+?)\s*\n+\s*\*\*Back:\*\*\s*(.+?)"
@@ -547,8 +619,8 @@ def render_ai_answer(raw_text, mode):
                     "</button></article>"
                 )
             rendered.append("</div>")
-            return "".join(rendered)
-    return render_markdown(raw_text)
+            return wrapper_start + "".join(rendered) + wrapper_end
+    return wrapper_start + render_markdown(raw_text) + wrapper_end
 
 
 def suggested_followups(question, mode, module=None):
