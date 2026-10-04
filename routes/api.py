@@ -221,7 +221,7 @@ def resources():
     module_id = request.args.get("module_id", type=int)
     query = _visible_resource_query()
     if module_id:
-        query = query.filter_by(module_id=module_id)
+        query = query.filter(Resource.module_id == module_id)
     items = query.order_by(Resource.created_at.desc()).limit(200).all()
     return jsonify(resources=[_resource_summary(r) for r in items])
 
