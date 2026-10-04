@@ -1,0 +1,46 @@
+{# Slim header: page location on the left, search / alerts / theme on the right.
+   Pages that pass `breadcrumbs` (the curriculum drill-down) show their full
+   trail; every other page shows "Section / Page" from the active nav item. #}
+{% import "partials/icons.html" as icons %}
+{% if breadcrumbs %}
+  {% set trail = breadcrumbs %}
+{% elif nav.active %}
+  {% set trail = [(nav.active.section, None), (nav.active.label, None)] %}
+{% else %}
+  {% set trail = [] %}
+{% endif %}
+<header class="topbar">
+  <button class="icon-button topbar__menu" type="button" data-sidebar-open aria-controls="app-sidebar" aria-expanded="false" aria-label="Open menu">{{ icons.icon('menu', size=20) }}</button>
+
+  {% if trail %}
+  <nav class="crumbs" aria-label="Breadcrumb">
+    {% if trail|length > 1 and trail[-2][1] %}
+    <a class="icon-button crumbs__back" href="{{ trail[-2][1] }}" aria-label="Back to {{ trail[-2][0] }}">{{ icons.icon('arrow-left', size=17) }}</a>
+    {% endif %}
+    <ol>
+      {% for label, link in trail %}
+      <li>
+        {% if loop.last %}<span aria-current="page">{{ label }}</span>
+        {% elif link %}<a href="{{ link }}">{{ label }}</a>
+        {% else %}<span class="crumbs__muted">{{ label }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </nav>
+  {% endif %}
+
+  <div class="topbar__actions">
+    <button class="topbar__search" type="button" data-open-palette aria-label="Search and jump to pages (Ctrl+K)">
+      {{ icons.icon('search', size=16) }}
+      <span>{{ 'Search or jump to…' if nav.search else 'Jump to…' }}</span>
+      <kbd>Ctrl K</kbd>
+    </button>
+    <a class="icon-button notification-link" href="{{ url_for('notifications.index') }}" aria-label="Notifications{% if unread_notification_count %}, {{ unread_notification_count }} unread{% endif %}">
+      {{ icons.icon('bell', size=18) }}
+      {% if unread_notification_count %}<span class="notification-count" aria-hidden="true">{{ unread_notification_count if unread_notification_count < 100 else '99+' }}</span>{% endif %}
+    </a>
+    <button class="icon-button" type="button" data-theme-toggle aria-label="Switch colour theme">
+      {{ icons.icon('moon', size=18, cls='icon theme-icon--moon') }}{{ icons.icon('sun', size=18, cls='icon theme-icon--sun') }}
+    </button>
+  </div>
+</header>

@@ -1,0 +1,47 @@
+{# Ctrl/Cmd+K palette: jump to any page in the user's menu, or (students and
+   lecturers) send free text to their role's search. Filtering is client-side
+   in main.js; without JS the topbar trigger simply does nothing. #}
+{% import "partials/icons.html" as icons %}
+<div class="palette" data-palette hidden>
+  <button class="palette__backdrop" type="button" data-palette-close tabindex="-1" aria-label="Close"></button>
+  <div class="palette__panel" role="dialog" aria-modal="true" aria-label="Search and navigation">
+    <form class="palette__search" method="GET" {% if nav.search %}action="{{ nav.search.url }}"{% endif %} data-palette-form>
+      {{ icons.icon('search', size=18) }}
+      <input type="search" name="q" autocomplete="off" spellcheck="false"
+             placeholder="{{ 'Search materials or jump to a page…' if nav.search else 'Jump to a page…' }}"
+             role="combobox" aria-expanded="true" aria-controls="palette-results" aria-autocomplete="list"
+             data-palette-input>
+      <kbd>Esc</kbd>
+    </form>
+    <ul class="palette__results" id="palette-results" role="listbox" aria-label="Results" data-palette-list>
+      {% for section in nav.sections %}
+      <li class="palette__group" role="presentation" data-palette-group>{{ section.label }}</li>
+      {% for item in section.entries %}
+      <li role="presentation">
+        <a class="palette__item" href="{{ item.url }}" role="option" id="palette-{{ loop.index }}-{{ section.label|lower }}" data-palette-option
+           data-keywords="{{ item.label|lower }} {{ item.hint|lower }} {{ section.label|lower }}">
+          <span class="palette__icon">{{ icons.icon(item.icon, size=16) }}</span>
+          <span class="palette__copy"><strong>{{ item.label }}</strong><small>{{ item.hint }}</small></span>
+          <span class="palette__enter">{{ icons.icon('corner-down-left', size=15) }}</span>
+        </a>
+      </li>
+      {% endfor %}
+      {% endfor %}
+      {% if nav.search %}
+      <li role="presentation" data-palette-search-row hidden>
+        <div class="palette__item" role="option" id="palette-search" data-palette-option data-palette-search>
+          <span class="palette__icon">{{ icons.icon('search', size=16) }}</span>
+          <span class="palette__copy"><strong>{{ nav.search.label }}</strong><small>“<span data-palette-query></span>”</small></span>
+          <span class="palette__enter">{{ icons.icon('corner-down-left', size=15) }}</span>
+        </div>
+      </li>
+      {% endif %}
+    </ul>
+    <p class="palette__empty" data-palette-empty hidden>No matching pages.</p>
+    <footer class="palette__foot">
+      <span><kbd>↑</kbd><kbd>↓</kbd> to navigate</span>
+      <span><kbd>Enter</kbd> to open</span>
+      <span><kbd>Esc</kbd> to close</span>
+    </footer>
+  </div>
+</div>

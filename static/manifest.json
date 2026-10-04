@@ -1,0 +1,13 @@
+{
+  "name": "Smart DIT Learning Hub",
+  "short_name": "Smart DIT",
+  "description": "Curriculum resources, guided AI study support and learning insights for DIT.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f7f6",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "/static/img/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

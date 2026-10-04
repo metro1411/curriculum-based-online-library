@@ -2,7 +2,6 @@
 
 import logging
 import os
-import warnings
 from datetime import datetime
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
@@ -11,18 +10,12 @@ from sqlalchemy import inspect, text
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config, DATA_DIR, ensure_directories
+import performance
 from extensions import csrf, db, login_manager
 from utils import human_filesize
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("smart_dit_learning_hub")
-
-try:
-    from sqlalchemy.exc import LegacyAPIWarning
-    warnings.filterwarnings("ignore", category=LegacyAPIWarning)
-except ImportError:
-    pass
-
 
 def create_app():
     ensure_directories()
@@ -56,6 +49,7 @@ def create_app():
     _register_context_processors(app)
     _register_health_check(app)
     _register_security_headers(app)
+    performance.init_app(app)
     _register_commands(app)
 
     with app.app_context():
@@ -87,11 +81,7 @@ def _register_login_manager():
     @login_manager.unauthorized_handler
     def unauthorized():
         flash("Please log in to continue.", "warning")
-        if request.path.startswith("/department"):
-            return redirect(url_for("auth.login", next=request.path))
-        if request.path.startswith("/lecturer"):
-            return redirect(url_for("auth.lecturer_login", next=request.path))
-        return redirect(url_for("auth.student_login", next=request.path))
+        return redirect(url_for("auth.login", next=request.path))
 
 
 def _register_account_guard(app):
@@ -216,6 +206,10 @@ def _apply_schema_migrations(app):
         "learning_events": {
             "qualifies_for_streak": "BOOLEAN NOT NULL DEFAULT FALSE",
         },
+        "announcements": {
+            "recipient_count": "INTEGER NOT NULL DEFAULT 0",
+            "emailed": "BOOLEAN NOT NULL DEFAULT FALSE",
+        },
     }
     for table_name, additions in additions_by_table.items():
         inspector = inspect(db.engine)
@@ -251,11 +245,15 @@ def _register_context_processors(app):
     import ai_engine
     from flask_login import current_user
     from models import Notification, StudentPreference
+    import announcements
+    from navigation import app_navigation, role_label
 
     @app.context_processor
     def inject_globals():
         data_saver = False
         unread_notification_count = 0
+        nav = {"sections": [], "active": None}
+        user_role = ""
         if current_user.is_authenticated and current_user.is_student:
             preference = StudentPreference.query.filter_by(student_id=current_user.id).first()
             data_saver = bool(preference and preference.data_saver)
@@ -263,12 +261,19 @@ def _register_context_processors(app):
             unread_notification_count = Notification.query.filter_by(
                 user_id=current_user.id, is_read=False
             ).count()
+            counts = {"unread_notification_count": unread_notification_count}
+            if current_user.is_student and unread_notification_count:
+                counts["unread_announcements"] = announcements.unread_count(current_user)
+            nav = app_navigation(current_user, counts)
+            user_role = role_label(current_user)
         return {
             "app_name": app.config["APP_NAME"],
             "app_tagline": app.config["APP_TAGLINE"],
             "ai_available": ai_engine.is_available(),
             "data_saver": data_saver,
             "unread_notification_count": unread_notification_count,
+            "nav": nav,
+            "user_role": user_role,
         }
 
 
@@ -300,10 +305,10 @@ def _register_commands(app):
     @app.cli.command("send-study-reminders")
     def send_study_reminders():
         """Send one privacy-safe goal reminder at the selected cadence."""
-        from models import Notification, StudentPreference, User
+        from models import Notification, StudentPreference, User, utcnow_naive
         from notifications import notify, reminder_is_due
 
-        now = datetime.utcnow()
+        now = utcnow_naive()
         today = datetime.combine(now.date(), datetime.min.time())
         sent = 0
         preferences = StudentPreference.query.all()

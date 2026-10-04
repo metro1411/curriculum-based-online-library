@@ -161,6 +161,8 @@ def send_resource_file(resource, as_attachment=False):
     # Prevent browsers from guessing an executable/HTML type for an uploaded
     # document even if a proxy or old database row contains a bad MIME value.
     response.headers["X-Content-Type-Options"] = "nosniff"
+    # Private course material must never be stored by shared proxies.
+    response.cache_control.private = True
     return response
 
 

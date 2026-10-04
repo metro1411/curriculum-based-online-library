@@ -27,21 +27,175 @@
     setTimeout(function () { toast.remove(); }, 5000);
   };
 
-  function initMobileNav() {
-    var toggle = document.querySelector("[data-mobile-toggle]");
-    var panel = document.querySelector("[data-mobile-panel]");
-    if (!toggle || !panel) return;
-    function setPanelState(isOpen) {
-      panel.classList.toggle("open", isOpen);
-      panel.setAttribute("aria-hidden", isOpen ? "false" : "true");
-      if (isOpen) panel.removeAttribute("inert");
-      else panel.setAttribute("inert", "");
-      toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
-    }
-    toggle.addEventListener("click", function () {
-      setPanelState(!panel.classList.contains("open"));
+  // JSON requests that fail clearly on flaky mobile networks: a timeout
+  // instead of an endless spinner, and a specific message when the session
+  // expired (the server answers with a login page instead of JSON).
+  function requestJSON(url, options) {
+    options = options || {};
+    var controller = window.AbortController ? new AbortController() : null;
+    var timer = controller ? window.setTimeout(function () { controller.abort(); }, options.timeout || 45000) : null;
+    var headers = { "X-CSRFToken": csrfToken() };
+    if (options.body !== undefined) headers["Content-Type"] = "application/json";
+    return fetch(url, {
+      method: options.method || "POST",
+      headers: headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      credentials: "same-origin",
+      signal: controller ? controller.signal : undefined
+    }).then(function (response) {
+      var type = response.headers.get("Content-Type") || "";
+      if (response.redirected || type.indexOf("application/json") === -1) {
+        var expired = new Error("Your session has expired. Refresh the page and sign in again.");
+        expired.kind = "session";
+        throw expired;
+      }
+      return response.json().then(function (data) { return { ok: response.ok && data.ok !== false, status: response.status, data: data }; });
+    }).catch(function (error) {
+      if (error.kind === "session") throw error;
+      var failure = new Error(navigator.onLine === false
+        ? "You're offline. Reconnect and try again."
+        : error.name === "AbortError" ? "The server took too long to respond. Please try again." : "The connection failed. Please try again.");
+      failure.kind = "network";
+      throw failure;
+    }).finally(function () { if (timer) window.clearTimeout(timer); });
+  }
+
+  // Stops double-taps from posting a form twice, and blocks submits while
+  // offline instead of leaving the user on the browser's error page.
+  function initSubmitGuard() {
+    document.addEventListener("submit", function (event) {
+      var form = event.target;
+      if (event.defaultPrevented || form.method.toLowerCase() !== "post") return;
+      if (navigator.onLine === false) {
+        event.preventDefault();
+        window.showToast("You're offline. Your changes were not sent; reconnect and try again.", "warning");
+        return;
+      }
+      if (form.dataset.submitting === "true") { event.preventDefault(); return; }
+      form.dataset.submitting = "true";
+      // Disable after the browser has captured the clicked button's name/value.
+      window.setTimeout(function () {
+        form.querySelectorAll("button[type=submit], button:not([type])").forEach(function (button) {
+          button.disabled = true;
+          button.setAttribute("aria-busy", "true");
+        });
+      }, 0);
     });
-    panel.querySelectorAll("a").forEach(function (link) { link.addEventListener("click", function () { setPanelState(false); }); });
+    // Pages restored from the back/forward cache must be usable again.
+    window.addEventListener("pageshow", function (event) {
+      if (!event.persisted) return;
+      document.querySelectorAll("form[data-submitting]").forEach(function (form) {
+        delete form.dataset.submitting;
+        form.querySelectorAll("button[aria-busy]").forEach(function (button) {
+          button.disabled = false;
+          button.removeAttribute("aria-busy");
+        });
+      });
+    });
+  }
+
+  function initConnectivity() {
+    var banner = null;
+    function show() {
+      if (banner) return;
+      banner = document.createElement("div");
+      banner.className = "offline-banner";
+      banner.setAttribute("role", "status");
+      banner.textContent = "You're offline. You can keep reading this page; changes will need a connection.";
+      document.body.appendChild(banner);
+    }
+    function hide() {
+      if (!banner) return;
+      banner.remove();
+      banner = null;
+      window.showToast("You're back online.", "success");
+    }
+    window.addEventListener("offline", show);
+    window.addEventListener("online", hide);
+    if (navigator.onLine === false) show();
+  }
+
+  function initCharCounters() {
+    document.querySelectorAll("[data-char-count][maxlength]").forEach(function (field) {
+      var max = Number(field.getAttribute("maxlength"));
+      var counter = document.createElement("small");
+      counter.className = "char-count";
+      counter.setAttribute("aria-live", "polite");
+      field.insertAdjacentElement("afterend", counter);
+      function update() {
+        counter.textContent = field.value.length + " / " + max;
+        counter.classList.toggle("is-near-limit", field.value.length > max * 0.9);
+      }
+      field.addEventListener("input", update);
+      update();
+    });
+  }
+
+  function initServiceWorker() {
+    if (!("serviceWorker" in navigator)) return;
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("/sw.js").catch(function () { /* optional enhancement */ });
+    });
+  }
+
+  function storeSetting(key, value) {
+    try { window.localStorage.setItem(key, value); } catch (error) { /* storage unavailable */ }
+  }
+
+  // Sidebar: a slide-in drawer below 1024px, a collapsible rail above it.
+  function initSidebar() {
+    var sidebar = document.getElementById("app-sidebar");
+    if (!sidebar) return;
+    var root = document.documentElement;
+    var openButton = document.querySelector("[data-sidebar-open]");
+    var collapseButton = sidebar.querySelector("[data-sidebar-collapse]");
+    var collapseLabel = sidebar.querySelector("[data-collapse-label]");
+    var desktop = window.matchMedia("(min-width: 1024px)");
+
+    function setDrawer(open) {
+      document.body.classList.toggle("sidebar-open", open);
+      if (openButton) openButton.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        var first = sidebar.querySelector(".sidebar__link, .brand");
+        if (first) first.focus();
+      }
+    }
+
+    // Collapsed links show only icons, so give them a native tooltip.
+    function syncCollapsed() {
+      var collapsed = desktop.matches && root.getAttribute("data-sidebar") === "collapsed";
+      sidebar.querySelectorAll("[data-nav-label]").forEach(function (link) {
+        if (collapsed) link.setAttribute("title", link.dataset.navLabel);
+        else link.removeAttribute("title");
+      });
+      if (collapseButton) {
+        collapseButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        collapseButton.setAttribute("title", collapsed ? "Expand sidebar" : "Collapse sidebar");
+      }
+      if (collapseLabel) collapseLabel.textContent = collapsed ? "Expand sidebar" : "Collapse sidebar";
+    }
+
+    if (openButton) openButton.addEventListener("click", function () { setDrawer(true); });
+    document.querySelectorAll("[data-sidebar-close]").forEach(function (button) {
+      button.addEventListener("click", function () { setDrawer(false); if (openButton) openButton.focus(); });
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && document.body.classList.contains("sidebar-open")) {
+        setDrawer(false);
+        if (openButton) openButton.focus();
+      }
+    });
+    if (collapseButton) {
+      collapseButton.addEventListener("click", function () {
+        var collapse = root.getAttribute("data-sidebar") !== "collapsed";
+        if (collapse) root.setAttribute("data-sidebar", "collapsed");
+        else root.removeAttribute("data-sidebar");
+        storeSetting("smart-dit-sidebar", collapse ? "collapsed" : "expanded");
+        syncCollapsed();
+      });
+    }
+    desktop.addEventListener("change", function () { setDrawer(false); syncCollapsed(); });
+    syncCollapsed();
   }
 
   function initToasts() {
@@ -79,7 +233,7 @@
       var input = zone.querySelector('input[type="file"]');
       var output = zone.querySelector("[data-filename]");
       if (!input || !output) return;
-      function showName() { if (input.files && input.files[0]) { output.textContent = "Selected: " + input.files[0].name; output.style.display = "block"; } }
+      function showName() { if (input.files && input.files[0]) { output.textContent = "Selected: " + input.files[0].name; output.hidden = false; } }
       zone.addEventListener("click", function (event) { if (event.target.tagName !== "INPUT") input.click(); });
       input.addEventListener("change", showName);
       ["dragenter", "dragover"].forEach(function (name) { zone.addEventListener(name, function (event) { event.preventDefault(); zone.classList.add("is-dragover"); }); });
@@ -88,26 +242,38 @@
     });
   }
 
+  // theme-init.js has already applied the saved theme before first paint.
   function initTheme() {
-    var body = document.body;
-    if (!body) return;
-    var stored = null;
-    try { stored = window.localStorage.getItem("smart-dit-theme"); } catch (error) { stored = null; }
-    var preferredDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var root = document.documentElement;
     function apply(theme, persist) {
-      body.dataset.theme = theme;
-      var dark = theme === "dark";
+      root.setAttribute("data-theme", theme);
+      var label = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
       document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
-        button.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
-        button.setAttribute("title", dark ? "Switch to light mode" : "Switch to dark mode");
+        button.setAttribute("aria-label", label);
+        button.setAttribute("title", label);
       });
       var meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", dark ? "#082a28" : "#08766e");
-      if (persist) { try { window.localStorage.setItem("smart-dit-theme", theme); } catch (error) {} }
+      if (meta) meta.setAttribute("content", theme === "dark" ? "#0d1b19" : "#0f766e");
+      if (persist) storeSetting("smart-dit-theme", theme);
     }
-    apply(stored === "dark" || (!stored && preferredDark) ? "dark" : "light", false);
+    apply(root.getAttribute("data-theme") === "dark" ? "dark" : "light", false);
     document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
-      button.addEventListener("click", function () { apply(body.dataset.theme === "dark" ? "light" : "dark", true); });
+      button.addEventListener("click", function () {
+        apply(root.getAttribute("data-theme") === "dark" ? "light" : "dark", true);
+      });
+    });
+  }
+
+  function initPasswordToggles() {
+    document.querySelectorAll("[data-password-toggle]").forEach(function (button) {
+      var input = document.getElementById(button.getAttribute("aria-controls"));
+      if (!input) return;
+      button.addEventListener("click", function () {
+        var reveal = input.type === "password";
+        input.type = reveal ? "text" : "password";
+        button.setAttribute("aria-pressed", reveal ? "true" : "false");
+        button.setAttribute("aria-label", reveal ? "Hide password" : "Show password");
+      });
     });
   }
 
@@ -194,28 +360,108 @@
     refreshRole();
   }
 
-  function initQuickSearch() {
-    var root = document.querySelector("[data-quick-search]");
+  // Ctrl/Cmd+K: filter the user's pages, or send the text to role search.
+  function initCommandPalette() {
+    var root = document.querySelector("[data-palette]");
     if (!root) return;
-    var input = root.querySelector("[data-quick-search-input]");
+    var form = root.querySelector("[data-palette-form]");
+    var input = root.querySelector("[data-palette-input]");
+    var empty = root.querySelector("[data-palette-empty]");
+    var searchRow = root.querySelector("[data-palette-search-row]");
+    var queryLabel = root.querySelector("[data-palette-query]");
+    var options = Array.prototype.slice.call(root.querySelectorAll("[data-palette-option]"));
+    var groups = Array.prototype.slice.call(root.querySelectorAll("[data-palette-group]"));
+    var visible = [];
+    var selected = -1;
+    var opener = null;
+
+    function select(index) {
+      options.forEach(function (option) { option.classList.remove("is-selected"); option.setAttribute("aria-selected", "false"); });
+      selected = visible.length ? (index + visible.length) % visible.length : -1;
+      if (selected < 0) { input.removeAttribute("aria-activedescendant"); return; }
+      var option = visible[selected];
+      option.classList.add("is-selected");
+      option.setAttribute("aria-selected", "true");
+      input.setAttribute("aria-activedescendant", option.id);
+      option.scrollIntoView({ block: "nearest" });
+    }
+
+    function filter() {
+      var term = input.value.trim().toLowerCase();
+      visible = [];
+      options.forEach(function (option) {
+        if (option.hasAttribute("data-palette-search")) return;
+        var match = !term || option.dataset.keywords.indexOf(term) !== -1;
+        option.parentElement.hidden = !match;
+        if (match) visible.push(option);
+      });
+      // Hide group headings with no visible entries.
+      groups.forEach(function (group) {
+        var next = group.nextElementSibling;
+        var any = false;
+        while (next && !next.hasAttribute("data-palette-group")) {
+          if (!next.hidden && !next.hasAttribute("data-palette-search-row")) any = true;
+          next = next.nextElementSibling;
+        }
+        group.hidden = !any;
+      });
+      if (searchRow) {
+        searchRow.hidden = !term;
+        if (queryLabel) queryLabel.textContent = input.value.trim();
+        if (term) visible.push(searchRow.querySelector("[data-palette-option]"));
+      }
+      if (empty) empty.hidden = visible.length > 0;
+      select(0);
+    }
+
     function open() {
+      opener = document.activeElement;
       root.hidden = false;
       document.body.classList.add("has-overlay");
-      window.setTimeout(function () { if (input) input.focus(); }, 0);
+      input.value = "";
+      filter();
+      window.setTimeout(function () { input.focus(); }, 0);
     }
     function close() {
       root.hidden = true;
       document.body.classList.remove("has-overlay");
+      if (opener && opener.focus) opener.focus();
     }
-    document.querySelectorAll("[data-open-search]").forEach(function (button) {
+    function activate(option) {
+      if (!option) return;
+      if (option.hasAttribute("data-palette-search")) form.submit();
+      else window.location.href = option.getAttribute("href");
+    }
+
+    document.querySelectorAll("[data-open-palette]").forEach(function (button) {
       button.addEventListener("click", open);
     });
-    root.querySelectorAll("[data-close-search]").forEach(function (button) {
+    root.querySelectorAll("[data-palette-close]").forEach(function (button) {
       button.addEventListener("click", close);
+    });
+    input.addEventListener("input", filter);
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "ArrowDown") { event.preventDefault(); select(selected + 1); }
+      else if (event.key === "ArrowUp") { event.preventDefault(); select(selected - 1); }
+      else if (event.key === "Enter") { event.preventDefault(); activate(visible[selected]); }
+    });
+    root.addEventListener("mousemove", function (event) {
+      var option = event.target.closest("[data-palette-option]");
+      var index = visible.indexOf(option);
+      if (option && index !== -1 && index !== selected) select(index);
+    });
+    root.addEventListener("click", function (event) {
+      var option = event.target.closest("[data-palette-search]");
+      if (option) activate(option);
+    });
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      activate(visible[selected]);
     });
     document.addEventListener("keydown", function (event) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault(); open();
+        event.preventDefault();
+        if (root.hidden) open(); else close();
       } else if (event.key === "Escape" && !root.hidden) {
         close();
       }
@@ -365,17 +611,22 @@
       hideEmpty(); setFollowups([]); createUserTurn(message); setGenerating(true);
       if (input) { input.value = ""; resizeInput(); }
       var typing = typingIndicator();
-      fetch(root.dataset.askUrl, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken() }, body: JSON.stringify({ message: message, mode: state.mode, module_id: state.moduleId || null, resource_id: state.resourceId || null, conversation_id: state.conversationId, response_style: state.responseStyle }) })
-        .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
+      // Generated answers can take a while; allow two minutes before giving up.
+      requestJSON(root.dataset.askUrl, { timeout: 120000, body: { message: message, mode: state.mode, module_id: state.moduleId || null, resource_id: state.resourceId || null, conversation_id: state.conversationId, response_style: state.responseStyle } })
         .then(function (result) {
           typing.remove();
-          if (!result.ok || !result.data.ok) { createAssistantTurn("<p>" + escapeHtml(result.data.error || "I could not complete that response.") + "</p>", "", [], [], false); return; }
+          if (!result.ok) { createAssistantTurn("<p>" + escapeHtml(result.data.error || "I could not complete that response.") + "</p>", "", [], [], false); return; }
           var wasNew = !state.conversationId; state.conversationId = result.data.conversation_id;
           createAssistantTurn(result.data.answer_html, result.data.message_id, result.data.sources, result.data.web_sources, result.data.general_guidance);
           setFollowups(result.data.followups);
           if (wasNew) { addConversation(state.conversationId, result.data.conversation_title); if (title) title.textContent = result.data.conversation_title; }
         })
-        .catch(function () { typing.remove(); createAssistantTurn("<p>The learning assistant could not be reached. Please try again.</p>", "", [], [], false); })
+        .catch(function (error) {
+          typing.remove();
+          createAssistantTurn("<p>" + escapeHtml(error.message) + "</p>", "", [], [], false);
+          // Give the unsent question back so it isn't lost on a dropped connection.
+          if (input && !input.value) { input.value = message; resizeInput(); }
+        })
         .finally(function () { setGenerating(false); if (input) input.focus(); });
     }
     function sendFeedback(group, rating, unclear, note) {
@@ -388,10 +639,9 @@
       var buttons = group.querySelectorAll("button");
       buttons.forEach(function (button) { button.disabled = true; });
       if (status) status.textContent = "Sending feedback…";
-      fetch(root.dataset.feedbackUrl, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken() }, body: JSON.stringify(payload) })
-        .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
+      requestJSON(root.dataset.feedbackUrl, { body: payload })
         .then(function (result) {
-          if (!result.ok || !result.data.ok) throw new Error(result.data.error || "Feedback could not be saved.");
+          if (!result.ok) throw new Error(result.data.error || "Feedback could not be saved.");
           if (rating) {
             group.querySelectorAll("[data-rating]").forEach(function (button) {
               button.classList.toggle("is-selected", Number(button.dataset.rating) === rating);
@@ -414,23 +664,23 @@
     function regenerate(turn) {
       if (!state.conversationId || state.generating) return;
       setGenerating(true); var typing = typingIndicator();
-      fetch(root.dataset.regenerateUrl, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken() }, body: JSON.stringify({ conversation_id: state.conversationId, response_style: state.responseStyle }) })
-        .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
+      requestJSON(root.dataset.regenerateUrl, { timeout: 120000, body: { conversation_id: state.conversationId, response_style: state.responseStyle } })
         .then(function (result) {
-          typing.remove(); if (!result.ok || !result.data.ok) { window.showToast(result.data.error || "Unable to regenerate the answer.", "error"); return; }
+          typing.remove(); if (!result.ok) { window.showToast(result.data.error || "Unable to regenerate the answer.", "error"); return; }
           var body = turn.querySelector(".chat-turn__body"); body.querySelector(".chat-bubble--assistant").innerHTML = result.data.answer_html;
           turn.dataset.messageId = result.data.message_id; body.querySelector(".ai-feedback").outerHTML = feedbackControls(result.data.message_id);
           body.querySelectorAll(".chat-sources, .general-guidance-note").forEach(function (node) { node.remove(); }); appendMeta(body, result.data.sources, result.data.web_sources, result.data.general_guidance); decorateCodeBlocks(turn); setFollowups(result.data.followups); scrollToBottom();
         })
-        .catch(function () { typing.remove(); window.showToast("Unable to regenerate the answer.", "error"); })
+        .catch(function (error) { typing.remove(); window.showToast(error.message, "error"); })
         .finally(function () { setGenerating(false); });
     }
     function renameConversation(button) {
       var id = button.dataset.renameConversation; var current = button.dataset.title || (title ? title.textContent : ""); var next = window.prompt("Rename conversation", current);
       if (!next || next.trim() === current) return;
       var endpoint = root.dataset.renameUrl.replace("/0/", "/" + id + "/");
-      fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken() }, body: JSON.stringify({ title: next.trim() }) })
-        .then(function (response) { return response.json(); }).then(function (data) { if (!data.ok) { window.showToast(data.error || "Could not rename this conversation.", "error"); return; } if (title && String(state.conversationId) === String(id)) title.textContent = data.title; root.querySelectorAll('[data-conversation-row]').forEach(function (row) { var rename = row.querySelector('[data-rename-conversation="' + id + '"]'); if (rename) { rename.dataset.title = data.title; row.dataset.conversationTitle = data.title.toLowerCase(); var label = row.querySelector('.conv-item__title'); if (label) label.textContent = data.title; } }); });
+      requestJSON(endpoint, { body: { title: next.trim() } })
+        .catch(function (error) { window.showToast(error.message, "error"); return null; })
+        .then(function (result) { if (!result) return; var data = result.data; if (!result.ok) { window.showToast(data.error || "Could not rename this conversation.", "error"); return; } if (title && String(state.conversationId) === String(id)) title.textContent = data.title; root.querySelectorAll('[data-conversation-row]').forEach(function (row) { var rename = row.querySelector('[data-rename-conversation="' + id + '"]'); if (rename) { rename.dataset.title = data.title; row.dataset.conversationTitle = data.title.toLowerCase(); var label = row.querySelector('.conv-item__title'); if (label) label.textContent = data.title; } }); });
     }
 
     root.addEventListener("click", function (event) {
@@ -542,23 +792,21 @@
         if (detail) detail.textContent = "Stay on this resource and interact naturally. Idle or background time is not counted.";
       }
     }
-    fetch(root.dataset.studyStartUrl, {
-      method: "POST",
-      headers: { "X-CSRFToken": csrfToken() }
-    }).then(function (response) { return response.json(); }).then(function (data) {
-      if (!data.ok) return;
-      token = data.token;
-      update(data.active_seconds || 0, data.qualified);
+    requestJSON(root.dataset.studyStartUrl, { timeout: 20000 }).then(function (result) {
+      if (!result.ok) return;
+      token = result.data.token;
+      update(result.data.active_seconds || 0, result.data.qualified);
     }).catch(function () {
       if (status) status.textContent = "Study timer unavailable";
       if (detail) detail.textContent = "You can continue reading; activity tracking will retry on your next resource.";
     });
     window.setInterval(function () {
-      if (!token || qualified || document.hidden || !document.hasFocus() || Date.now() - lastActivity > 90000) return;
+      if (!token || qualified || navigator.onLine === false || document.hidden || !document.hasFocus() || Date.now() - lastActivity > 90000) return;
       var endpoint = root.dataset.studyHeartbeatTemplate.replace("STUDY_TOKEN", encodeURIComponent(token));
-      fetch(endpoint, { method: "POST", headers: { "X-CSRFToken": csrfToken() } })
-        .then(function (response) { return response.json(); })
-        .then(function (data) { if (data.ok) update(data.active_seconds || 0, data.qualified); });
+      // A missed heartbeat only means that interval isn't counted; retry on the next tick.
+      requestJSON(endpoint, { timeout: 20000 })
+        .then(function (result) { if (result.ok) update(result.data.active_seconds || 0, result.data.qualified); })
+        .catch(function () {});
     }, 30000);
   }
 
@@ -576,5 +824,24 @@
     });
   }
 
-  document.addEventListener("DOMContentLoaded", function () { initTheme(); initMobileNav(); initToasts(); initConfirmModals(); initFileDrops(); initRegistrationForm(); initQuickSearch(); initAIAssistant(); initCurriculumForm(); initQuestionForm(); initFlashcards(); initStudyTracker(); initDeclarativeActions(); });
+  document.addEventListener("DOMContentLoaded", function () {
+    initTheme();
+    initSidebar();
+    initCommandPalette();
+    initPasswordToggles();
+    initSubmitGuard();
+    initConnectivity();
+    initCharCounters();
+    initServiceWorker();
+    initToasts();
+    initConfirmModals();
+    initFileDrops();
+    initRegistrationForm();
+    initAIAssistant();
+    initCurriculumForm();
+    initQuestionForm();
+    initFlashcards();
+    initStudyTracker();
+    initDeclarativeActions();
+  });
 })();

@@ -8,13 +8,12 @@ hardcoding credentials.
 from __future__ import annotations
 
 import smtplib
-from datetime import datetime
 from email.message import EmailMessage
 
 from flask import current_app, has_request_context, request
 
 from extensions import db
-from models import Notification, StudentPreference, utcnow
+from models import Notification, StudentPreference, utcnow, utcnow_naive
 
 
 def _email_allowed(user, *, optional):
@@ -67,8 +66,12 @@ def _send_email(user, title, body, target_url=None):
     return "sent", None
 
 
-def notify(user, kind, title, body, *, target_url=None, optional_email=False):
-    """Create an in-app notification and attempt the corresponding email."""
+def notify(user, kind, title, body, *, target_url=None, optional_email=False, deliver_email=True):
+    """Create an in-app notification and attempt the corresponding email.
+
+    ``deliver_email=False`` records an in-app notification only, for
+    high-volume messages where the sender did not ask for email.
+    """
     notification = Notification(
         user_id=user.id,
         kind=kind,
@@ -78,6 +81,10 @@ def notify(user, kind, title, body, *, target_url=None, optional_email=False):
     )
     db.session.add(notification)
     db.session.flush()
+
+    if not deliver_email:
+        notification.email_status = "in_app_only"
+        return notification
 
     allowed, reason = _email_allowed(user, optional=optional_email)
     if not allowed:
@@ -98,7 +105,7 @@ def notify(user, kind, title, body, *, target_url=None, optional_email=False):
 
 def reminder_is_due(preference, now=None):
     """Return whether a student's selected reminder cadence is enabled."""
-    now = now or datetime.utcnow()
+    now = now or utcnow_naive()
     if not preference or not preference.optional_emails or not preference.goal_reminders:
         return False
     if preference.reminder_frequency == "off":

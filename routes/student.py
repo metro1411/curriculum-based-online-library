@@ -17,10 +17,11 @@ from flask_login import login_required, current_user
 from markupsafe import escape
 
 import ai_engine
+import announcements
 from extensions import db
 from models import (
     Department, Programme, NtaLevel, Semester, Module, Resource, ResourceView, Download,
-    RESOURCE_TYPES, Topic, Announcement, StudentPreference, SavedItem, LearningEvent,
+    RESOURCE_TYPES, Topic, StudentPreference, SavedItem, LearningEvent,
     LecturerAssignment, AcademicQuestion, QUESTION_STATUSES, ResourceStudySession, User, utcnow,
 )
 from learning import (
@@ -145,25 +146,30 @@ def dashboard():
         if item.resource is not None and item.resource.is_verified
     ]
     saved_count = SavedItem.query.filter_by(student_id=current_user.id).count()
-    all_viewed_ids = {
-        row.resource_id for row in ResourceView.query.filter_by(student_id=current_user.id).all()
-    }
-    all_downloaded_ids = {
-        row.resource_id for row in Download.query.filter_by(student_id=current_user.id).all()
-    }
+    # Count in the database instead of loading every row: this page is the
+    # first thing students open, often on mobile data.
+    viewed_count = db.session.query(db.func.count(db.distinct(ResourceView.resource_id))).filter(
+        ResourceView.student_id == current_user.id
+    ).scalar()
+    downloaded_count = db.session.query(db.func.count(db.distinct(Download.resource_id))).filter(
+        Download.student_id == current_user.id
+    ).scalar()
     academic_questions = LearningEvent.query.filter(
         LearningEvent.student_id == current_user.id,
         LearningEvent.event_type.in_(["academic_ai_question", "lecturer_question"]),
     ).count()
     dashboard_metrics = {
-        "resources_viewed": len(all_viewed_ids),
+        "resources_viewed": viewed_count,
         "saved": saved_count,
-        "downloads": len(all_downloaded_ids),
+        "downloads": downloaded_count,
         "ai_questions": academic_questions,
     }
 
     return render_template(
         "student/dashboard.html",
+        latest_announcements=announcements.for_modules(
+            [module.id for module in _accessible_semester_modules()], limit=3
+        ),
         continue_learning=continue_learning,
         recent_downloads=recent_downloads,
         recommended=recommended,
@@ -199,13 +205,33 @@ def learning_insights():
             flash("Choose a weekly goal between 15 and 1,200 minutes.", "error")
         return redirect(url_for("student.learning_insights", module_id=module.id))
 
-    announcements = Announcement.query.filter_by(module_id=module.id).order_by(
-        Announcement.is_pinned.desc(), Announcement.created_at.desc()).limit(3).all()
     saved = SavedItem.query.filter_by(student_id=current_user.id).order_by(SavedItem.created_at.desc()).limit(5).all()
     return render_template(
         "student/learning_insights.html", module=module, modules=modules,
         insights=student_insights(current_user.id, module), preference=preference,
-        announcements=announcements, saved=saved,
+        announcements=announcements.for_modules([module.id], limit=3), saved=saved,
+    )
+
+
+def _accessible_semester_modules():
+    modules = list(current_user.semester.modules) if current_user.semester else []
+    return [module for module in modules if _student_can_access_module(module)]
+
+
+@student_bp.route("/announcements")
+def announcements_page():
+    modules = _accessible_semester_modules()
+    module_ids = [module.id for module in modules]
+    selected_module_id = request.args.get("module_id", type=int)
+    if selected_module_id not in module_ids:
+        selected_module_id = None
+    items = announcements.for_modules([selected_module_id] if selected_module_id else module_ids)
+    # Opening the page is what "reading" an announcement means.
+    announcements.mark_read_for(current_user)
+    db.session.commit()
+    return render_template(
+        "student/announcements.html", modules=modules,
+        selected_module_id=selected_module_id, announcements=items,
     )
 
 
@@ -440,6 +466,7 @@ def module_resources(module_id):
         semester=semester, grouped=grouped, topics=topics, total_count=len(resources),
         topic_groups=topic_groups, unassigned_albums=unassigned_albums,
         breadcrumbs=breadcrumbs,
+        module_announcements=announcements.for_modules([module.id], limit=3),
     )
 
 

@@ -4,11 +4,22 @@
 {% block title %}{{ module.code or module.name }} | {{ app_name }}{% endblock %}
 {% block content %}
 <div class="container fade-in">
-  {% include "partials/breadcrumb.html" %}
   <div class="module-identity-hero">
     <div><div class="context-pills"><span class="badge badge-teal">{{ module.code or 'Code pending' }}</span><span class="badge badge-neutral">{{ module.type_label }}</span><span class="context-pill">{{ module.academic_year.label if module.academic_year else 'Legacy curriculum' }}</span></div><h1>{{ module.name }}</h1>{% if module.description %}<p>{{ module.description }}</p>{% endif %}<div class="module-meta-line">{{ programme.name }} · {{ level.label }} · {{ semester.label }}{% if module.cohort_label %} · {{ module.cohort_label }}{% endif %}</div></div>
     <div class="hero-actions"><a href="{{ url_for('student.questions') }}" class="btn btn-secondary">{{ icons.icon('help-circle', size=16) }} Ask lecturer</a><a href="{{ url_for('ai.assistant', module_id=module.id) }}" class="btn btn-primary">{{ icons.icon('sparkles', size=16) }} Study with DIT AI</a></div>
   </div>
+
+  {% if module_announcements %}
+  <section class="module-announcements" aria-label="Latest announcements for this module">
+    {% for item in module_announcements %}
+    <a class="module-announcement{{ ' module-announcement--pinned' if item.is_pinned }}" href="{{ url_for('student.announcements_page', module_id=module.id) }}#{{ item.anchor }}">
+      <span class="module-announcement__icon">{{ icons.icon('pin' if item.is_pinned else 'megaphone', size=16) }}</span>
+      <span class="module-announcement__copy"><strong>{{ item.title }}</strong><small>{{ item.author.full_name }} · {{ item.created_at.strftime('%d %b %Y') }}</small></span>
+      {{ icons.icon('arrow-right', size=15) }}
+    </a>
+    {% endfor %}
+  </section>
+  {% endif %}
 
   {% if topics %}
   <nav class="topic-jumpbar" aria-label="Module topics"><span>Topics</span>{% for topic in topics %}<a href="#topic-{{ topic.id }}">{{ topic.unit_label or loop.index }} · {{ topic.title }}</a>{% endfor %}</nav>

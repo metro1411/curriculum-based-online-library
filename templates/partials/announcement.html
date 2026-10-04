@@ -1,0 +1,31 @@
+{% import "partials/icons.html" as icons %}
+
+{# One announcement. `manage` adds the lecturer's delivery details and remove
+   control; students get a shortcut into a private question instead. #}
+{% macro announcement_card(item, manage=false, return_to='announcements') %}
+<article class="card announcement-card{{ ' announcement-card--pinned' if item.is_pinned }}" id="{{ item.anchor }}">
+  <header class="announcement-card__header">
+    <span class="announcement-card__icon">{{ icons.icon('pin' if item.is_pinned else 'megaphone', size=17) }}</span>
+    <div class="announcement-card__meta">
+      <span class="badge badge-teal">{{ item.module.code or item.module.name }}</span>
+      {% if item.is_pinned %}<span class="badge badge-warning">Pinned</span>{% endif %}
+      <span class="announcement-card__byline">{{ item.author.full_name }} · <time datetime="{{ item.created_at.isoformat() }}">{{ item.created_at.strftime('%d %b %Y · %H:%M') }}</time></span>
+    </div>
+  </header>
+  <h2>{{ item.title }}</h2>
+  <p class="announcement-card__body">{{ item.body }}</p>
+  <footer class="announcement-card__footer">
+    {% if manage %}
+      <span class="announcement-card__reach">{{ icons.icon('users', size=14) }} Sent to {{ item.recipient_count }} student{{ '' if item.recipient_count == 1 else 's' }}{% if item.emailed %} · also emailed{% endif %}</span>
+      <form method="POST" action="{{ url_for('lecturer.delete_announcement', module_id=item.module_id, announcement_id=item.id) }}" data-confirm="Remove this announcement? Students will no longer see it." data-confirm-title="Remove announcement?">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="return_to" value="{{ return_to }}">
+        <button class="btn btn-ghost-danger btn-sm" type="submit">{{ icons.icon('trash', size=14) }} Remove</button>
+      </form>
+    {% else %}
+      <span class="text-muted text-xs">{{ item.module.name }}</span>
+      <a class="btn btn-secondary btn-sm" href="{{ url_for('student.questions', module_id=item.module_id) }}">{{ icons.icon('help-circle', size=14) }} Ask about this</a>
+    {% endif %}
+  </footer>
+</article>
+{% endmacro %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% from "partials/announcement.html" import announcement_card %}
+{% block title %}Announcements | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container container-narrow fade-in">
+  <div class="page-header page-header--split">
+    <div>
+      <span class="page-header__eyebrow">From your lecturers</span>
+      <h1>Announcements</h1>
+      <p>Class updates for your current modules. Have a question about one? Ask privately; your name stays hidden.</p>
+    </div>
+    <a class="btn btn-secondary" href="{{ url_for('student.questions') }}">{{ icons.icon('help-circle', size=16) }} Ask a lecturer</a>
+  </div>
+
+  {% if modules|length > 1 %}
+  <nav class="chip-filter" aria-label="Filter by module">
+    <a class="chip{{ ' is-active' if not selected_module_id }}" href="{{ url_for('student.announcements_page') }}">All modules</a>
+    {% for module in modules %}<a class="chip{{ ' is-active' if module.id == selected_module_id }}" href="{{ url_for('student.announcements_page', module_id=module.id) }}">{{ module.code or module.name }}</a>{% endfor %}
+  </nav>
+  {% endif %}
+
+  <div class="announcement-feed">
+    {% for item in announcements %}
+      {{ announcement_card(item) }}
+    {% else %}
+    <div class="card empty-state"><span class="empty-state__icon">{{ icons.icon('megaphone', size=24) }}</span><h3>No announcements yet</h3><p>When a lecturer posts an update for one of your modules, it appears here and in your notifications.</p></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

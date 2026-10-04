@@ -11,6 +11,8 @@ After extracting the release ZIP, double-click `START_HERE.bat`. It provides the
 - Student curriculum navigation by academic year, programme, NTA level and semester; topic-based resource albums; private lecturer questions; learning goals, streaks and visual personal insights.
 - A private DIT AI workspace with natural explanations, real mathematical symbols, interactive teal flashcards, labelled code blocks, revision sheets, quizzes, source references and feedback controls.
 - Lecturer workspaces for claiming HOD-approved modules, publishing topics and categorised resources, and answering anonymous student questions through the `New`, `Reviewing`, `Answered`, `Will Address in Class` and `Closed` workflow.
+- Module announcements: lecturers message every enrolled student from **Announcements** (or the module workspace). Students get an in-app alert with an unread badge, see updates on their dashboard and module page, and can reply privately with one tap. Posting is limited to approved lecturers, de-duplicated, rate-limited (10 per hour) and audited; email delivery is optional per announcement and respects each student's email preference.
+- Built for phones on slow or patchy connections: gzip-compressed pages and assets, content-hashed CSS/JS cached for a year, an offline page instead of the browser error screen (service worker; signed-in pages are never cached on the device), double-tap and offline protection on forms, request timeouts with clear messages, 16px inputs that avoid iOS zoom, and large touch targets. The app can be added to a phone's home screen.
 - HOD curriculum versioning, module code and type (`Core` or `General Studies`), lecturer verification/deactivation, claim approval, module archiving and a searchable audit log.
 - Email and in-app notifications with student-controlled optional reminder frequency. Direct question replies and account notices remain available even when optional reminders are disabled.
 - Local SQLite development storage plus managed-Postgres and private-cloud-storage support for public deployment; secure password hashing, CSRF protection, strict access scoping, security headers, file validation and sensitive-action audit trails.
@@ -27,7 +29,7 @@ For the complete public deployment and upgrade checklist, see [DEPLOY_RENDER.md]
 
 The default address is `127.0.0.1:5080`. If it is unavailable, choose another local port without changing source code, for example: `PORT=5090 python app.py` (PowerShell: `$env:PORT=5090; python app.py`).
 
-On Windows, double-click `run_local.bat` for the same setup-and-start process. To run the isolated functional verification before starting the app, double-click `test_app.bat`; it checks login, curriculum versioning, module claims, anonymous questions, notifications, ten-minute streak enforcement, deactivation, audit logs, resource management, API access, AI formatting, security headers and the health endpoint without changing your seeded data.
+On Windows, double-click `run_local.bat` for the same setup-and-start process. To run the isolated test suite before starting the app, double-click `test_app.bat` (or run `pip install -r requirements-dev.txt` then `python -m pytest`); it checks login, curriculum versioning, module claims, anonymous questions, notifications, ten-minute streak enforcement, deactivation, audit logs, resource management, API access, AI formatting, security headers and the health endpoint without changing your seeded data.
 
 On a local first launch, the application creates the curriculum, learning resources, and access accounts:
 
@@ -79,7 +81,13 @@ Optionally create a local `.env` file and set values appropriate to your environ
 ## Project structure
 
 - `routes/` — student, lecturer, HOD, notification, authentication, API and AI endpoints.
-- `templates/` and `static/` — responsive interface, accessible controls and interaction behaviour.
+- `announcements.py` — lecturer-to-student announcement rules, audience and delivery.
+- `performance.py` — compression and long-lived caching of versioned static assets.
+- `navigation.py` — each role's sidebar menu, defined once and shared by the sidebar, mobile drawer and Ctrl+K command palette.
+- `templates/` — pages extend `base.html`, which renders the sidebar app shell for signed-in users and a public header otherwise.
+- `static/css/` — `tokens.css` (light/dark design tokens), `base.css`, `layout.css` (shell, sidebar, palette), `components.css`, then page styles: `public.css`, `learning.css`, `teaching.css`, `ai.css`.
+- `static/js/` — `theme-init.js` applies the saved theme before first paint; `main.js` holds all interaction behaviour.
+- `tests/` — pytest suite using a disposable database (`python -m pytest`).
 - `models.py` — versioned curriculum, resources, private questions, notifications, audit, conversations and analytics models.
 - `learning.py` — purposeful learning-event aggregation and strict streak calculation.
 - `ai_engine.py` — private retrieval, natural answer formatting, flashcards and code presentation.

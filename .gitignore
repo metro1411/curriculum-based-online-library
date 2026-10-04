@@ -3,8 +3,9 @@
 /uploads/
 /instance/
 
-# Environment secrets
+# Environment secrets (the template is safe to commit)
 .env*
+!.env.example
 data/.flask_secret_key
 
 # Delivery archives are generated locally, never source code.

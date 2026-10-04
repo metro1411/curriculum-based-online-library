@@ -7,6 +7,7 @@ student's curriculum navigation step for step), and resource management
 """
 
 import os
+from dataclasses import dataclass
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, session,
@@ -22,6 +23,7 @@ from models import (
     AcademicQuestion, AcademicYear, QUESTION_STATUSES, QUESTION_STATUS_KEYS,
     TOPIC_CATEGORIES, TOPIC_CATEGORY_KEYS, User, utcnow,
 )
+import announcements
 from learning import lecturer_insights
 from governance import record_audit
 from notifications import notify
@@ -31,7 +33,7 @@ from curriculum import (
 )
 from utils import (
     allowed_file, build_stored_filename, looks_like_claimed_type,
-    human_filesize, safe_resource_mime_type,
+    safe_resource_mime_type,
 )
 from file_processing import process_resource_text
 from storage_backend import StorageError, delete_resource_file, stage_uploaded_file
@@ -327,81 +329,119 @@ def upload_form(module_id):
     )
 
 
-def _handle_upload_post(module):
+class ResourceFormError(Exception):
+    """A lecturer-correctable problem with the resource form; the message is shown as-is."""
+
+
+@dataclass
+class StagedFile:
+    stored_filename: str
+    original_filename: str
+    mime_type: str
+    path: str
+    size: int
+    ext: str
+
+
+def _read_resource_form(module_id):
+    """Parse and validate the fields shared by the create and edit forms."""
     title = (request.form.get("title") or "").strip()
-    description = (request.form.get("description") or "").strip()
-    resource_type = request.form.get("resource_type") or "other"
-    topic_id = request.form.get("topic_id", type=int)
     external_url = (request.form.get("external_url") or "").strip()
-    verified = bool(request.form.get("verified"))
+    topic_id = request.form.get("topic_id", type=int)
+    resource_type = request.form.get("resource_type")
     upload_file = request.files.get("file")
 
-    if resource_type not in RESOURCE_TYPE_KEYS:
-        resource_type = "other"
-    topic = Topic.query.filter_by(id=topic_id, module_id=module.id).first() if topic_id else None
-    if topic_id and topic is None:
-        flash("Choose a topic that belongs to this module.", "error")
-        return redirect(url_for("lecturer.upload_form", module_id=module.id))
-
-    redirect_back = redirect(url_for("lecturer.upload_form", module_id=module.id))
-
     if not title:
-        flash("Please provide a title for this resource.", "error")
+        raise ResourceFormError("Please provide a title for this resource.")
+    if external_url and not external_url.startswith(("http://", "https://")):
+        raise ResourceFormError("External links must start with http:// or https://")
+    topic = None
+    if topic_id:
+        topic = Topic.query.filter_by(id=topic_id, module_id=module_id).first()
+        if topic is None:
+            raise ResourceFormError("Choose a topic that belongs to this module.")
+    return {
+        "title": title,
+        "description": (request.form.get("description") or "").strip(),
+        # None means "not a recognised type"; callers choose the fallback.
+        "resource_type": resource_type if resource_type in RESOURCE_TYPE_KEYS else None,
+        "topic": topic,
+        "external_url": external_url,
+        "verified": bool(request.form.get("verified")),
+        "file": upload_file if upload_file and upload_file.filename else None,
+    }
+
+
+def _stage_resource_file(upload_file):
+    """Validate an uploaded file and store it.
+
+    Raises ResourceFormError for problems the lecturer can fix, and
+    StorageError/OSError when storage fails. The caller deletes the staged
+    file if a later step fails.
+    """
+    if not allowed_file(upload_file.filename, current_app.config["ALLOWED_RESOURCE_EXTENSIONS"]):
+        raise ResourceFormError("Unsupported file type. Allowed formats: PDF, DOCX, PPTX, TXT, MD, MP4, WEBM.")
+    ext = upload_file.filename.rsplit(".", 1)[1].lower()
+    if not looks_like_claimed_type(upload_file, ext):
+        raise ResourceFormError("This file's contents don't match its extension. Please check the file and try again.")
+
+    stored_filename = build_stored_filename(upload_file.filename)
+    mime_type = safe_resource_mime_type(upload_file.filename)
+    path = stage_uploaded_file(upload_file, stored_filename, mime_type)
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        delete_resource_file(stored_filename)
+        raise
+    return StagedFile(
+        stored_filename=stored_filename,
+        original_filename=secure_filename(upload_file.filename) or upload_file.filename,
+        mime_type=mime_type, path=path, size=size, ext=ext,
+    )
+
+
+def _index_resource_text(resource, staged=None):
+    """Rebuild the chunks DIT AI retrieves: the file's text, or the title and
+    description for an external link."""
+    ResourceChunk.query.filter_by(resource_id=resource.id).delete()
+    if staged:
+        chunks, resource.text_extraction_status = process_resource_text(staged.path, staged.ext)
+    else:
+        resource.text_extraction_status = "not_applicable"
+        chunks = [f"{resource.title}. {resource.description or ''}".strip()] if resource.external_url else []
+    for index, chunk in enumerate(chunks):
+        db.session.add(ResourceChunk(resource_id=resource.id, chunk_index=index, content=chunk))
+
+
+def _handle_upload_post(module):
+    redirect_back = redirect(url_for("lecturer.upload_form", module_id=module.id))
+    try:
+        form = _read_resource_form(module.id)
+        if not form["file"] and not form["external_url"]:
+            raise ResourceFormError("Please upload a file or provide an external link.")
+        staged = _stage_resource_file(form["file"]) if form["file"] else None
+    except ResourceFormError as error:
+        flash(str(error), "error")
         return redirect_back
-
-    has_file = bool(upload_file and upload_file.filename)
-    if not has_file and not external_url:
-        flash("Please upload a file or provide an external link.", "error")
+    except (StorageError, OSError):
+        current_app.logger.exception("Resource upload could not be persisted.")
+        flash("The resource could not be stored. Please try again in a moment.", "error")
         return redirect_back
-
-    if external_url and not (external_url.startswith("http://") or external_url.startswith("https://")):
-        flash("External links must start with http:// or https://", "error")
-        return redirect_back
-
-    stored_filename = original_filename = None
-    file_size = mime_type = None
-    ext = None
-
-    if has_file:
-        if not allowed_file(upload_file.filename, current_app.config["ALLOWED_RESOURCE_EXTENSIONS"]):
-            flash("Unsupported file type. Allowed formats: PDF, DOCX, PPTX, TXT, MD, MP4, WEBM.", "error")
-            return redirect_back
-        ext = upload_file.filename.rsplit(".", 1)[1].lower()
-        if not looks_like_claimed_type(upload_file, ext):
-            flash("This file's contents don't match its extension. Please check the file "
-                  "and try again.", "error")
-            return redirect_back
-
-        stored_filename = build_stored_filename(upload_file.filename)
-        original_filename = secure_filename(upload_file.filename) or upload_file.filename
-        try:
-            mime_type = safe_resource_mime_type(upload_file.filename)
-            save_path = stage_uploaded_file(upload_file, stored_filename, mime_type)
-        except (StorageError, OSError):
-            current_app.logger.exception("Resource upload could not be persisted.")
-            flash("The resource could not be stored. Please try again in a moment.", "error")
-            return redirect_back
-        try:
-            file_size = os.path.getsize(save_path)
-        except OSError:
-            delete_resource_file(stored_filename)
-            flash("The uploaded file could not be verified after saving. Please try again.", "error")
-            return redirect_back
 
     try:
         resource = Resource(
             module_id=module.id,
-            topic_id=topic.id if topic else None,
-            title=title,
-            description=description,
-            resource_type=resource_type,
-            stored_filename=stored_filename,
-            original_filename=original_filename,
-            file_size_bytes=file_size,
-            mime_type=mime_type,
-            external_url=external_url or None,
+            topic_id=form["topic"].id if form["topic"] else None,
+            title=form["title"],
+            description=form["description"],
+            resource_type=form["resource_type"] or "other",
+            stored_filename=staged.stored_filename if staged else None,
+            original_filename=staged.original_filename if staged else None,
+            file_size_bytes=staged.size if staged else None,
+            mime_type=staged.mime_type if staged else None,
+            external_url=form["external_url"] or None,
             uploaded_by_id=current_user.id,
-            verification_status="verified" if verified else "pending",
+            verification_status="verified" if form["verified"] else "pending",
         )
         db.session.add(resource)
         db.session.flush()
@@ -411,29 +451,16 @@ def _handle_upload_post(module):
             department_id=module.semester.nta_level.programme.department_id,
             details={"module_id": module.id, "resource_type": resource.resource_type},
         )
-
-        if stored_filename:
-            chunks, status = process_resource_text(save_path, ext)
-            resource.text_extraction_status = status
-            for idx, chunk in enumerate(chunks):
-                db.session.add(ResourceChunk(resource_id=resource.id, chunk_index=idx, content=chunk))
-        elif external_url:
-            resource.text_extraction_status = "not_applicable"
-            db.session.add(ResourceChunk(
-                resource_id=resource.id, chunk_index=0, content=f"{title}. {description}".strip()
-            ))
-        else:
-            resource.text_extraction_status = "not_applicable"
-
+        _index_resource_text(resource, staged)
         db.session.commit()
     except Exception:
         db.session.rollback()
-        if stored_filename:
-            delete_resource_file(stored_filename)
+        if staged:
+            delete_resource_file(staged.stored_filename)
         current_app.logger.exception("Could not publish resource for module %s", module.id)
         flash("We could not publish that resource. Nothing was saved; please try again.", "error")
         return redirect_back
-    flash(f"\u201c{title}\u201d has been published to {module.name}.", "success")
+    flash(f"\u201c{resource.title}\u201d has been published to {module.name}.", "success")
     return redirect(url_for("lecturer.manage_resources"))
 
 
@@ -478,17 +505,7 @@ def module_content(module_id):
                 db.session.commit()
                 flash("Topic added.", "success")
         elif action == "announcement":
-            title = (request.form.get("title") or "").strip()
-            body = (request.form.get("body") or "").strip()
-            if not title or not body:
-                flash("An announcement needs both a title and message.", "error")
-            else:
-                db.session.add(Announcement(
-                    module_id=module.id, author_id=current_user.id, title=title, body=body,
-                    is_pinned=bool(request.form.get("is_pinned")),
-                ))
-                db.session.commit()
-                flash("Announcement published to students in this module.", "success")
+            _publish_announcement_from_form(module)
         return redirect(url_for("lecturer.module_content", module_id=module.id))
 
     return render_template(
@@ -602,14 +619,61 @@ def update_topic(module_id, topic_id):
     return redirect(url_for("lecturer.module_content", module_id=module_id))
 
 
+def _publish_announcement_from_form(module):
+    try:
+        announcement = announcements.publish(
+            module, current_user,
+            request.form.get("title"), request.form.get("body"),
+            pinned=bool(request.form.get("is_pinned")),
+            email=bool(request.form.get("send_email")),
+        )
+        db.session.commit()
+    except announcements.AnnouncementError as error:
+        db.session.rollback()
+        flash(str(error), "error")
+        return None
+    reach = announcement.recipient_count
+    flash(
+        f"Announcement sent to {reach} student{'' if reach == 1 else 's'} in {module.code or module.name}.",
+        "success",
+    )
+    return announcement
+
+
+@lecturer_bp.route("/announcements", methods=["GET", "POST"])
+def announcements_page():
+    modules = [module for module in _all_modules_for_filters() if module.is_published]
+    module_ids = [module.id for module in modules]
+    if request.method == "POST":
+        module_id = request.form.get("module_id", type=int)
+        if module_id not in module_ids:
+            flash("Choose one of your approved, published modules.", "error")
+        else:
+            _publish_announcement_from_form(db.session.get(Module, module_id))
+        return redirect(url_for("lecturer.announcements_page", module_id=module_id or None))
+
+    selected_module_id = request.args.get("module_id", type=int)
+    shown_ids = [selected_module_id] if selected_module_id in module_ids else module_ids
+    return render_template(
+        "lecturer/announcements.html",
+        modules=modules,
+        selected_module_id=selected_module_id if selected_module_id in module_ids else None,
+        announcements=announcements.for_modules(shown_ids),
+        title_max=announcements.TITLE_MAX,
+        body_max=announcements.BODY_MAX,
+    )
+
+
 @lecturer_bp.route("/module/<int:module_id>/announcements/<int:announcement_id>/delete", methods=["POST"])
 def delete_announcement(module_id, announcement_id):
     if not _assigned_module(module_id):
         abort(403)
     announcement = Announcement.query.filter_by(id=announcement_id, module_id=module_id).first_or_404()
-    db.session.delete(announcement)
+    announcements.remove(announcement, current_user)
     db.session.commit()
-    flash("Announcement removed.", "info")
+    flash("Announcement removed. Students who had not opened it will no longer see the alert.", "info")
+    if request.form.get("return_to") == "announcements":
+        return redirect(url_for("lecturer.announcements_page"))
     return redirect(url_for("lecturer.module_content", module_id=module_id))
 
 
@@ -651,105 +715,12 @@ def manage_resources():
 
 @lecturer_bp.route("/resources/<int:resource_id>/edit", methods=["GET", "POST"])
 def edit_resource(resource_id):
-    resource = Resource.query.get_or_404(resource_id)
+    resource = db.get_or_404(Resource, resource_id)
     if not _assigned_module(resource.module_id):
         abort(403)
 
     if request.method == "POST":
-        title = (request.form.get("title") or "").strip()
-        description = (request.form.get("description") or "").strip()
-        resource_type = request.form.get("resource_type") or resource.resource_type
-        topic_id = request.form.get("topic_id", type=int)
-        external_url = (request.form.get("external_url") or "").strip()
-        verified = bool(request.form.get("verified"))
-        new_file = request.files.get("file")
-
-        if not title:
-            flash("Title cannot be empty.", "error")
-            return redirect(url_for("lecturer.edit_resource", resource_id=resource.id))
-
-        if external_url and not external_url.startswith(("http://", "https://")):
-            flash("External links must start with http:// or https://", "error")
-            return redirect(url_for("lecturer.edit_resource", resource_id=resource.id))
-
-        resource.title = title
-        resource.description = description
-        if topic_id:
-            topic = Topic.query.filter_by(id=topic_id, module_id=resource.module_id).first()
-            if topic is None:
-                flash("Choose a topic that belongs to this module.", "error")
-                return redirect(url_for("lecturer.edit_resource", resource_id=resource.id))
-            resource.topic_id = topic.id
-        else:
-            resource.topic_id = None
-        if resource_type in RESOURCE_TYPE_KEYS:
-            resource.resource_type = resource_type
-        resource.verification_status = "verified" if verified else "pending"
-        old_filename_to_delete = None
-
-        stored_filename = None
-        try:
-            if new_file and new_file.filename:
-                if not allowed_file(new_file.filename, current_app.config["ALLOWED_RESOURCE_EXTENSIONS"]):
-                    flash("Unsupported file type. Allowed formats: PDF, DOCX, PPTX, TXT, MD, MP4, WEBM.", "error")
-                    return redirect(url_for("lecturer.edit_resource", resource_id=resource.id))
-                ext = new_file.filename.rsplit(".", 1)[1].lower()
-                if not looks_like_claimed_type(new_file, ext):
-                    flash("This file's contents don't match its extension. Please check the "
-                          "file and try again.", "error")
-                    return redirect(url_for("lecturer.edit_resource", resource_id=resource.id))
-
-                stored_filename = build_stored_filename(new_file.filename)
-                original_filename = secure_filename(new_file.filename) or new_file.filename
-                mime_type = safe_resource_mime_type(new_file.filename)
-                save_path = stage_uploaded_file(new_file, stored_filename, mime_type)
-
-                old_filename_to_delete = resource.stored_filename
-                ResourceChunk.query.filter_by(resource_id=resource.id).delete()
-
-                resource.stored_filename = stored_filename
-                resource.original_filename = original_filename
-                resource.file_size_bytes = os.path.getsize(save_path)
-                resource.mime_type = mime_type
-                resource.external_url = None
-
-                chunks, status = process_resource_text(save_path, ext)
-                resource.text_extraction_status = status
-                for idx, chunk in enumerate(chunks):
-                    db.session.add(ResourceChunk(resource_id=resource.id, chunk_index=idx, content=chunk))
-
-            elif external_url and not resource.stored_filename:
-                resource.external_url = external_url
-                ResourceChunk.query.filter_by(resource_id=resource.id).delete()
-                db.session.add(ResourceChunk(
-                    resource_id=resource.id, chunk_index=0, content=f"{title}. {description}".strip()
-                ))
-
-            record_audit(
-                "resource.updated", "Resource", target_id=resource.id,
-                target_label=resource.title,
-                department_id=resource.module.semester.nta_level.programme.department_id,
-                details={"resource_type": resource.resource_type, "topic_id": resource.topic_id},
-            )
-            db.session.commit()
-        except (OSError, StorageError, ValueError):
-            db.session.rollback()
-            if stored_filename:
-                delete_resource_file(stored_filename)
-            current_app.logger.exception("Could not update resource %s", resource.id)
-            flash("The resource could not be updated. Your existing version is unchanged; please try again.", "error")
-            return redirect(url_for("lecturer.edit_resource", resource_id=resource.id))
-        except Exception:
-            db.session.rollback()
-            if stored_filename:
-                delete_resource_file(stored_filename)
-            current_app.logger.exception("Unexpected resource update failure for %s", resource.id)
-            flash("The resource could not be updated. Your existing version is unchanged; please try again.", "error")
-            return redirect(url_for("lecturer.edit_resource", resource_id=resource.id))
-        if old_filename_to_delete:
-            delete_resource_file(old_filename_to_delete)
-        flash("Resource updated successfully.", "success")
-        return redirect(url_for("lecturer.manage_resources"))
+        return _handle_edit_post(resource)
 
     return render_template(
         "lecturer/edit_resource.html", resource=resource, resource_types=RESOURCE_TYPES,
@@ -758,9 +729,63 @@ def edit_resource(resource_id):
     )
 
 
+def _handle_edit_post(resource):
+    redirect_back = redirect(url_for("lecturer.edit_resource", resource_id=resource.id))
+    staged = None
+    try:
+        form = _read_resource_form(resource.module_id)
+        if form["file"]:
+            staged = _stage_resource_file(form["file"])
+    except ResourceFormError as error:
+        flash(str(error), "error")
+        return redirect_back
+    except (StorageError, OSError):
+        current_app.logger.exception("Replacement file for resource %s could not be stored", resource.id)
+        flash("The resource could not be updated. Your existing version is unchanged; please try again.", "error")
+        return redirect_back
+
+    replaced_filename = None
+    try:
+        resource.title = form["title"]
+        resource.description = form["description"]
+        resource.topic_id = form["topic"].id if form["topic"] else None
+        resource.resource_type = form["resource_type"] or resource.resource_type
+        resource.verification_status = "verified" if form["verified"] else "pending"
+        if staged:
+            replaced_filename = resource.stored_filename
+            resource.stored_filename = staged.stored_filename
+            resource.original_filename = staged.original_filename
+            resource.file_size_bytes = staged.size
+            resource.mime_type = staged.mime_type
+            resource.external_url = None
+            _index_resource_text(resource, staged)
+        elif form["external_url"] and not resource.stored_filename:
+            resource.external_url = form["external_url"]
+            _index_resource_text(resource)
+        record_audit(
+            "resource.updated", "Resource", target_id=resource.id,
+            target_label=resource.title,
+            department_id=resource.module.semester.nta_level.programme.department_id,
+            details={"resource_type": resource.resource_type, "topic_id": resource.topic_id},
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        if staged:
+            delete_resource_file(staged.stored_filename)
+        current_app.logger.exception("Could not update resource %s", resource.id)
+        flash("The resource could not be updated. Your existing version is unchanged; please try again.", "error")
+        return redirect_back
+    # Remove the old file only after the new version is committed.
+    if replaced_filename:
+        delete_resource_file(replaced_filename)
+    flash("Resource updated successfully.", "success")
+    return redirect(url_for("lecturer.manage_resources"))
+
+
 @lecturer_bp.route("/resources/<int:resource_id>/delete", methods=["POST"])
 def delete_resource(resource_id):
-    resource = Resource.query.get_or_404(resource_id)
+    resource = db.get_or_404(Resource, resource_id)
     if not _assigned_module(resource.module_id):
         abort(403)
 

@@ -1,0 +1,179 @@
+/* ==========================================================================
+   Design tokens — Smart DIT Learning Hub
+   Components use only the semantic tokens below. Dark mode swaps the token
+   values on <html data-theme="dark">; components never need their own
+   dark-mode overrides.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* Brand teal (fixed scale, used to derive the semantic tokens) */
+  --teal-950: #042f2e;
+  --teal-900: #134e4a;
+  --teal-800: #115e59;
+  --teal-700: #0f766e;
+  --teal-600: #0d9488;
+  --teal-500: #14b8a6;
+  --teal-400: #2dd4bf;
+  --teal-300: #5eead4;
+  --teal-200: #99f6e4;
+  --teal-100: #ccfbf1;
+  --teal-50: #f0fdfa;
+
+  /* Surfaces */
+  --bg: #f5f7f6;
+  --surface: #ffffff;
+  --surface-2: #f8faf9;          /* subtle inset fill */
+  --surface-3: #eff3f2;          /* hover / pressed fill */
+  --surface-inverse: #0b2422;    /* deep brand panels */
+  --border: #e2e8e6;
+  --border-strong: #cdd8d5;
+  --scrim: rgba(6, 24, 22, 0.48);
+
+  /* Text */
+  --text: #111c1b;
+  --text-2: #4a5a57;
+  --text-3: #6c7b78;
+  --text-on-inverse: #e9fbf7;
+
+  /* Accent (brand teal in context) */
+  --accent: #0f766e;
+  --accent-hover: #115e59;
+  --on-accent: #ffffff;
+  --accent-text: #0f766e;        /* links, active labels */
+  --accent-strong: #134e4a;      /* headings inside accent areas */
+  --accent-soft: #effaf8;        /* tinted background */
+  --accent-soft-2: #d7f3ee;      /* stronger tint, icon tiles */
+  --accent-border: #b9e7df;
+  --accent-chart: #14b8a6;
+
+  /* Status */
+  --success: #15803d;
+  --success-soft: #effbf3;
+  --success-border: #bbf0cc;
+  --warning: #a35207;
+  --warning-soft: #fff8eb;
+  --warning-border: #fbe1a6;
+  --danger: #b91c1c;
+  --danger-hover: #991b1b;
+  --danger-soft: #fef2f2;
+  --danger-border: #fbcaca;
+  --info: #1d4ed8;
+  --info-soft: #eff5ff;
+  --info-border: #c7d9fe;
+  --violet: #6d28d9;
+  --violet-soft: #f5f3ff;
+  --violet-border: #ddd6fe;
+  --orange: #c2410c;
+  --orange-soft: #fff7ed;
+  --orange-border: #fed7aa;
+  --amber: #854d0e;
+  --amber-soft: #fefce8;
+  --amber-border: #fde68a;
+  --notify: #dc2626;
+
+  /* Code blocks stay dark in both themes */
+  --code-bg: #0b1e1c;
+  --code-border: #1f3c38;
+  --code-text: #e6f5f2;
+  --code-label: #76d9ca;
+
+  /* Shape */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+
+  /* Elevation */
+  --shadow-xs: 0 1px 2px rgba(15, 35, 33, 0.05);
+  --shadow-sm: 0 1px 3px rgba(15, 35, 33, 0.06), 0 1px 2px rgba(15, 35, 33, 0.04);
+  --shadow-md: 0 8px 24px rgba(15, 35, 33, 0.08), 0 2px 6px rgba(15, 35, 33, 0.04);
+  --shadow-lg: 0 24px 56px rgba(15, 35, 33, 0.16), 0 6px 16px rgba(15, 35, 33, 0.06);
+  --focus-ring: 0 0 0 3px rgba(20, 184, 166, 0.35);
+
+  /* Type */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  --font-math: Cambria, Georgia, "Times New Roman", serif;
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+
+  /* Layout */
+  --sidebar-width: 260px;
+  --sidebar-width-collapsed: 76px;
+  --topbar-height: 60px;
+  --content-width: 1240px;
+  --content-narrow: 780px;
+  --gutter: 32px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #07110f;
+  --surface: #0d1b19;
+  --surface-2: #112421;
+  --surface-3: #16302c;
+  --surface-inverse: #0f2f2b;
+  --border: #1d3532;
+  --border-strong: #2a4a45;
+  --scrim: rgba(0, 0, 0, 0.6);
+
+  --text: #e7f4f1;
+  --text-2: #a9c2bc;
+  --text-3: #7f9a94;
+  --text-on-inverse: #e9fbf7;
+
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+  --on-accent: #042f2e;
+  --accent-text: #5eead4;
+  --accent-strong: #ccfbf1;
+  --accent-soft: rgba(45, 212, 191, 0.09);
+  --accent-soft-2: rgba(45, 212, 191, 0.16);
+  --accent-border: rgba(45, 212, 191, 0.3);
+  --accent-chart: #2dd4bf;
+
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.1);
+  --success-border: rgba(74, 222, 128, 0.3);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.1);
+  --warning-border: rgba(251, 191, 36, 0.32);
+  --danger: #f87171;
+  --danger-hover: #fca5a5;
+  --danger-soft: rgba(248, 113, 113, 0.1);
+  --danger-border: rgba(248, 113, 113, 0.34);
+  --info: #93c5fd;
+  --info-soft: rgba(147, 197, 253, 0.1);
+  --info-border: rgba(147, 197, 253, 0.3);
+  --violet: #c4b5fd;
+  --violet-soft: rgba(196, 181, 253, 0.1);
+  --violet-border: rgba(196, 181, 253, 0.3);
+  --orange: #fdba74;
+  --orange-soft: rgba(253, 186, 116, 0.1);
+  --orange-border: rgba(253, 186, 116, 0.3);
+  --amber: #fde68a;
+  --amber-soft: rgba(253, 230, 138, 0.09);
+  --amber-border: rgba(253, 230, 138, 0.28);
+  --notify: #f87171;
+
+  --code-bg: #050e0d;
+  --code-border: #1d3532;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.5);
+  --focus-ring: 0 0 0 3px rgba(45, 212, 191, 0.4);
+}

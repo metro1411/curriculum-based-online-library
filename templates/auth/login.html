@@ -1,22 +1,48 @@
 {% extends "base.html" %}
 {% import "partials/icons.html" as icons %}
 {% block title %}Sign in | {{ app_name }}{% endblock %}
+{% block main_class %}page-main--flush{% endblock %}
 {% block content %}
-<div class="auth-shell auth-shell--compact">
-  <div class="auth-visual">
-    <div class="auth-visual__content"><span class="auth-visual__badge">One secure account</span><h2>Your learning identity travels with you.</h2><p>Sign in using your registration/staff number or email. Your role opens the right private workspace automatically.</p></div>
+<div class="auth-shell">
+  <section class="auth-visual" aria-hidden="true">
+    <span class="auth-visual__badge">One secure account</span>
+    <div class="auth-visual__content">
+      <h2>Your curriculum, your progress, one sign-in.</h2>
+      <p>Students, lecturers and the Head of Department use the same door. Your role opens the right workspace automatically.</p>
+      <ul class="auth-points">
+        <li>{{ icons.icon('layers', size=17) }} Module resources organised by programme, level and semester</li>
+        <li>{{ icons.icon('sparkles', size=17) }} DIT AI grounded in your lecturers’ approved materials</li>
+        <li>{{ icons.icon('shield-check', size=17) }} Private questions, goals and learning insights</li>
+      </ul>
+    </div>
+    <p class="auth-visual__foot">Dar es Salaam Institute of Technology · Smart DIT Learning Hub</p>
+  </section>
+
+  <div class="auth-form-side">
+    <div class="auth-card fade-in">
+      <h1>Welcome back</h1>
+      <p class="subtitle">Sign in with your registration or staff number, or your email.</p>
+      <form method="POST" action="{{ url_for('auth.login') }}" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ next }}">
+        <div class="form-group">
+          <label class="form-label" for="identifier">ID number or email</label>
+          <input class="form-input" id="identifier" name="identifier" required autocomplete="username" autofocus
+                 value="{{ request.form.get('identifier', '') }}" placeholder="2403…, 1403…, 5000… or email">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <div class="password-field">
+            <input class="form-input" id="password" name="password" type="password" required autocomplete="current-password">
+            <button class="icon-button password-field__toggle" type="button" data-password-toggle aria-controls="password" aria-pressed="false" aria-label="Show password">{{ icons.icon('eye', size=17) }}</button>
+          </div>
+        </div>
+        <label class="form-check"><input type="checkbox" name="remember"> Keep me signed in on this device</label>
+        <button type="submit" class="btn btn-primary btn-block btn-lg mt-6">Sign in {{ icons.icon('arrow-right', size=17) }}</button>
+      </form>
+      <p class="auth-card__footer">New to the learning hub? <a href="{{ url_for('auth.register') }}">Create your account</a></p>
+      <div class="auth-card__note">{{ icons.icon('shield-check', size=16) }}<span>Lecturer accounts are enabled after Head of Department approval.</span></div>
+    </div>
   </div>
-  <div class="auth-form-side"><div class="auth-card fade-in">
-    <div class="auth-card__logo"><span class="brand__mark">{{ icons.icon('users', size=19) }}</span><strong>Smart DIT access</strong></div>
-    <h1>Welcome back</h1><p class="subtitle">Student, lecturer and Department Head accounts use the same secure sign-in.</p>
-    <form method="POST" novalidate><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="next" value="{{ next }}">
-      <div class="form-group"><label class="form-label" for="identifier">ID number or email</label><input class="form-input" id="identifier" name="identifier" required autocomplete="username" placeholder="2403…, 1403…, 5000… or email"></div>
-      <div class="form-group"><label class="form-label" for="password">Password</label><input class="form-input" id="password" name="password" type="password" required autocomplete="current-password" placeholder="••••••••••••"></div>
-      <label class="form-check"><input type="checkbox" name="remember"> Keep me signed in on this device</label>
-      <button type="submit" class="btn btn-primary btn-block btn-lg mt-5">{{ icons.icon('log-out', size=17) }} Sign in</button>
-    </form>
-    <p class="mt-6 text-center">New to the learning hub? <a href="{{ url_for('auth.register') }}">Create your account</a></p>
-    <p class="text-center text-muted" style="font-size:.8rem;">Lecturer accounts require Head of Department approval before access is enabled.</p>
-  </div></div>
 </div>
 {% endblock %}

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>You're offline | {{ app_name }}</title>
+  {# Self-contained on purpose: the service worker stores this page alone and
+     shows it whenever the network is unreachable. No user data is rendered. #}
+  <style>
+    :root { color-scheme: light dark; --bg: #f5f7f6; --surface: #fff; --text: #111c1b; --muted: #4a5a57; --accent: #0f766e; --on-accent: #fff; --border: #e2e8e6; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #07110f; --surface: #0d1b19; --text: #e7f4f1; --muted: #a9c2bc; --accent: #2dd4bf; --on-accent: #042f2e; --border: #1d3532; } }
+    * { box-sizing: border-box; }
+    body { display: grid; min-height: 100vh; min-height: 100dvh; margin: 0; padding: 24px; place-items: center; background: var(--bg); color: var(--text); font: 16px/1.6 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+    main { width: min(420px, 100%); padding: 32px 28px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); text-align: center; }
+    .mark { display: grid; width: 56px; height: 56px; margin: 0 auto 18px; place-items: center; border-radius: 16px; background: var(--accent); color: var(--on-accent); }
+    h1 { margin: 0 0 8px; font-size: 1.45rem; letter-spacing: -0.02em; }
+    p { margin: 0 0 22px; color: var(--muted); }
+    a { display: inline-block; padding: 11px 22px; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-weight: 600; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2l20 20"/><path d="M8.5 16.4a5 5 0 0 1 7 0"/><path d="M5 12.6a10 10 0 0 1 5.2-2.7"/><path d="M19 12.6a10 10 0 0 0-2.4-1.7"/><path d="M1.5 9a15 15 0 0 1 4.4-2.8"/><path d="M22.5 9A15 15 0 0 0 11 5.1"/></svg></div>
+    <h1>You're offline</h1>
+    <p>Smart DIT Learning Hub can't reach the internet right now. Check your mobile data or Wi-Fi, then try again. Anything you've downloaded is still on your phone.</p>
+    <a href="">Try again</a>
+  </main>
+</body>
+</html>

@@ -14,9 +14,9 @@ if not exist ".venv\Scripts\python.exe" (
   if errorlevel 1 goto :error
 )
 
-call .venv\Scripts\python.exe -m pip install --disable-pip-version-check -r requirements.txt
+call .venv\Scripts\python.exe -m pip install --disable-pip-version-check -r requirements-dev.txt
 if errorlevel 1 goto :error
-call .venv\Scripts\python.exe tests\smoke_test.py
+call .venv\Scripts\python.exe -m pytest
 pause
 exit /b %errorlevel%
 

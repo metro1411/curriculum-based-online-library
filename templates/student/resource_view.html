@@ -4,14 +4,13 @@
 {% block title %}{{ resource.title }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="container fade-in" data-study-root data-study-start-url="{{ study_start_url }}" data-study-heartbeat-template="{{ study_heartbeat_template }}">
-  {% include "partials/breadcrumb.html" %}
 
   <div class="resource-view-header">
-    <div class="flex gap-4 items-center">
+    <div class="resource-view-header__title">
       <span class="resource-view-header__icon">{{ icons.icon(rc.resource_type_icon(resource.resource_type)|trim, size=26) }}</span>
       <div>
-        <h1 class="mb-0">{{ resource.title }}</h1>
-        <div class="context-pills mt-4">
+        <h1>{{ resource.title }}</h1>
+        <div class="context-pills">
           <span class="context-pill">{{ resource.type_label }}</span>
           {% if resource.is_verified %}
             <span class="badge badge-verified">{{ icons.icon('shield-check', size=12) }} DIT Verified</span>
@@ -22,51 +21,45 @@
         </div>
       </div>
     </div>
-    <div class="flex gap-2" style="flex-wrap:wrap;">
+    <div class="resource-view-header__actions">
       {% if resource.stored_filename %}
-      <a class="btn btn-primary" href="{{ url_for('student.resource_download', resource_id=resource.id) }}">
-        {{ icons.icon('download', size=16) }} Download
-      </a>
+      <a class="btn btn-primary" href="{{ url_for('student.resource_download', resource_id=resource.id) }}">{{ icons.icon('download', size=16) }} Download</a>
       {% else %}
-      <a class="btn btn-primary" href="{{ resource.external_url }}" target="_blank" rel="noopener">
-        {{ icons.icon('external-link', size=16) }} Open External Resource
-      </a>
+      <a class="btn btn-primary" href="{{ resource.external_url }}" target="_blank" rel="noopener">{{ icons.icon('external-link', size=16) }} Open external resource</a>
       {% endif %}
-      <a class="btn btn-secondary" href="{{ url_for('ai.assistant', resource_id=resource.id) }}">
-        {{ icons.icon('sparkles', size=16) }} Ask AI About This
-      </a>
+      <a class="btn btn-secondary" href="{{ url_for('ai.assistant', resource_id=resource.id) }}">{{ icons.icon('sparkles', size=16) }} Ask DIT AI</a>
       <form method="POST" action="{{ url_for('student.save_resource', resource_id=resource.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-ghost" type="submit">{{ icons.icon('bookmark', size=16) }} {{ 'Saved' if is_saved else 'Save for later' }}</button>
+        <button class="btn btn-ghost" type="submit" aria-pressed="{{ 'true' if is_saved else 'false' }}">{{ icons.icon('bookmark', size=16) }} {{ 'Saved' if is_saved else 'Save for later' }}</button>
       </form>
     </div>
   </div>
 
-  {% if resource.description %}<p>{{ resource.description }}</p>{% endif %}
-  <div class="study-progress card" data-study-progress><span class="study-progress__icon">{{ icons.icon('clock', size=17) }}</span><div><strong data-study-status>Focused study timer ready</strong><span data-study-detail>Keep this resource active for 10 minutes to qualify today’s streak.</span></div><div class="study-progress__bar"><span data-study-bar style="width:0%"></span></div></div>
+  {% if resource.description %}<p class="resource-description">{{ resource.description }}</p>{% endif %}
+  <div class="study-progress card" data-study-progress><span class="study-progress__icon">{{ icons.icon('clock', size=17) }}</span><div><strong data-study-status>Focused study timer ready</strong><span data-study-detail>Keep this resource active for 10 minutes to qualify today’s streak.</span></div><div class="study-progress__bar"><span data-study-bar></span></div></div>
 
-  <div class="dashboard-grid" style="grid-template-columns: 2fr 1fr; margin-top: 20px;">
+  <div class="resource-layout">
     <div>
       <div class="file-preview">
         {% if preview_kind == 'pdf' %}
-          <iframe src="{{ url_for('student.resource_file', resource_id=resource.id) }}" title="{{ resource.title }} preview"></iframe>
+          <iframe src="{{ url_for('student.resource_file', resource_id=resource.id) }}" title="{{ resource.title }} preview" loading="lazy"></iframe>
         {% elif preview_kind == 'video' %}
           <video class="resource-video" controls preload="metadata" aria-label="{{ resource.title }} video preview">
             <source src="{{ url_for('student.resource_file', resource_id=resource.id) }}">
             Your browser does not support in-browser video playback. Please download the file.
           </video>
         {% elif preview_kind == 'text' %}
-          <div class="card-pad" style="max-height: 640px; overflow-y: auto;">{{ preview_html|safe }}</div>
+          <div class="file-preview__text">{{ preview_html|safe }}</div>
         {% elif preview_kind == 'external' %}
           <div class="file-preview-unavailable">
             {{ icons.icon('external-link', size=30) }}
-            <p class="mt-4">This is an external reference link. Open it in a new tab to view it.</p>
+            <p>This is an external reference link. Open it in a new tab to view it.</p>
             <a class="btn btn-primary btn-sm" href="{{ resource.external_url }}" target="_blank" rel="noopener">Open External Resource</a>
           </div>
         {% else %}
           <div class="file-preview-unavailable">
             {{ icons.icon('file-text', size=30) }}
-            <p class="mt-4">Preview isn't available in-browser for this file type ({{ (resource.file_extension or '?')|upper }}).
+            <p>Preview isn't available in-browser for this file type ({{ (resource.file_extension or '?')|upper }}).
               Download the file to view it.</p>
           </div>
         {% endif %}
@@ -75,7 +68,7 @@
 
     <div>
       <div class="card card-pad">
-        <h4>Resource Details</h4>
+        <h2>Resource details</h2>
         <table class="meta-table">
           <tr><td>Module</td><td><a href="{{ url_for('student.module_resources', module_id=module.id) }}">{{ module.name }}</a></td></tr>
           <tr><td>Module code</td><td>{{ module.code or 'Pending curriculum code' }}</td></tr>
@@ -88,7 +81,7 @@
           <tr><td>Uploaded by</td><td>{{ resource.uploaded_by.full_name }}</td></tr>
           <tr><td>Upload date</td><td>{{ resource.created_at.strftime('%d %b %Y') }}</td></tr>
           {% if resource.file_size_bytes %}<tr><td>File size</td><td>{{ resource.file_size_bytes|filesize }}</td></tr>{% endif %}
-          {% if resource.original_filename %}<tr><td>File name</td><td style="word-break:break-all;">{{ resource.original_filename }}</td></tr>{% endif %}
+          {% if resource.original_filename %}<tr><td>File name</td><td class="break-all">{{ resource.original_filename }}</td></tr>{% endif %}
           <tr><td>Verification</td><td>{{ 'DIT Verified' if resource.is_verified else 'Pending Review' }}</td></tr>
         </table>
       </div>

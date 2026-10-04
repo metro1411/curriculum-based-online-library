@@ -2,11 +2,13 @@
 {% import "partials/icons.html" as icons %}
 {% block title %}Platform overview | {{ app_name }}{% endblock %}
 {% block content %}
-<div class="container-narrow page-main">
+<div class="container-narrow fade-in">
   <div class="page-header"><span class="page-header__eyebrow">Platform overview</span><h1>Academic learning, connected.</h1><p>Smart DIT Learning Hub brings together module knowledge, guided support and clear learning signals.</p></div>
-  <div class="card card-pad mb-6"><h3>{{ icons.icon('layers', size=18) }} Curriculum and content</h3><p>Resources are organised by department, programme, academic level, semester and module. Lecturer-managed topics, outcomes, announcements and approved materials form the primary context for module learning.</p></div>
-  <div class="card card-pad mb-6"><h3>{{ icons.icon('sparkles', size=18) }} AI learning support</h3><p>The learning assistant uses the selected academic context and relevant resources first. Students can choose a simple, detailed, exam-focused or guided explanation style, review their conversation history and report unclear responses.</p></div>
-  <div class="card card-pad mb-6"><h3>{{ icons.icon('bar-chart', size=18) }} Analytics with a purpose</h3><p>Student insights focus on action: study consistency, topic activity, revision priorities and next steps. Lecturer dashboards show module-level engagement trends, learning time, topic activity and support requests for assigned modules.</p></div>
-  <div class="card card-pad"><h3>{{ icons.icon('lock', size=18) }} Access and academic context</h3><p class="mb-0">Student and lecturer portals are role-protected. Lecturer workspaces are limited to assigned academic contexts so module content and analytics remain relevant to the teaching responsibility.</p></div>
+  <div class="about-grid">
+  <div class="card card-pad"><h3>{{ icons.icon('layers', size=18) }} Curriculum and content</h3><p>Resources are organised by department, programme, academic level, semester and module. Lecturer-managed topics, outcomes, announcements and approved materials form the primary context for module learning.</p></div>
+  <div class="card card-pad"><h3>{{ icons.icon('sparkles', size=18) }} AI learning support</h3><p>The learning assistant uses the selected academic context and relevant resources first. Students can choose a simple, detailed, exam-focused or guided explanation style, review their conversation history and report unclear responses.</p></div>
+  <div class="card card-pad"><h3>{{ icons.icon('bar-chart', size=18) }} Analytics with a purpose</h3><p>Student insights focus on action: study consistency, topic activity, revision priorities and next steps. Lecturer dashboards show module-level engagement trends, learning time, topic activity and support requests for assigned modules.</p></div>
+  <div class="card card-pad"><h3>{{ icons.icon('lock', size=18) }} Access and academic context</h3><p>Student and lecturer portals are role-protected. Lecturer workspaces are limited to assigned academic contexts so module content and analytics remain relevant to the teaching responsibility.</p></div>
+  </div>
 </div>
 {% endblock %}

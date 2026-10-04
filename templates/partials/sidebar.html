@@ -1,0 +1,44 @@
+{# Role navigation comes from navigation.py; nothing here is role-specific. #}
+{% import "partials/icons.html" as icons %}
+{% macro nav_link(item) -%}
+<a class="sidebar__link{{ ' is-active' if item.active }}" href="{{ item.url }}" data-nav-label="{{ item.label }}"{% if item.active %} aria-current="page"{% endif %}>
+  {{ icons.icon(item.icon, size=18) }}
+  <span class="sidebar__text">{{ item.label }}</span>
+  {% if item.badge %}<span class="sidebar__badge"><span class="sr-only">, </span>{{ item.badge }}<span class="sr-only"> unread</span></span>{% endif %}
+</a>
+{%- endmacro %}
+{% set profile = nav['items']['profile'] %}
+<aside class="sidebar" id="app-sidebar" aria-label="Main navigation">
+  <div class="sidebar__head">
+    <a class="brand" href="{{ nav.primary[0].entries[0].url }}">
+      <span class="brand__mark">{{ icons.icon('book-open', size=18) }}</span>
+      <span class="brand__text">Smart DIT<small>Learning Hub</small></span>
+    </a>
+    <button class="icon-button sidebar__close" type="button" data-sidebar-close aria-label="Close menu">{{ icons.icon('x', size=18) }}</button>
+  </div>
+
+  <nav class="sidebar__nav">
+    {% for section in nav.primary %}
+    <div class="sidebar__section">
+      <p class="sidebar__label">{{ section.label }}</p>
+      <ul class="sidebar__list">
+        {% for item in section.entries %}<li>{{ nav_link(item) }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </nav>
+
+  <div class="sidebar__foot">
+    {{ nav_link(nav['items']['notifications']) }}
+    <a class="sidebar__user{{ ' is-active' if profile.active }}" href="{{ profile.url }}" data-nav-label="{{ profile.label }}"{% if profile.active %} aria-current="page"{% endif %}>
+      <span class="avatar">{% if current_user.profile_photo_filename %}<img src="{{ url_for('profile.photo') }}" alt="">{% else %}{{ current_user.full_name[:1]|upper }}{% endif %}</span>
+      <span class="sidebar__text"><strong>{{ current_user.full_name }}</strong><small>{{ user_role }}</small></span>
+    </a>
+    <a class="sidebar__link" href="{{ url_for('auth.logout') }}" data-nav-label="Log out">
+      {{ icons.icon('log-out', size=18) }}<span class="sidebar__text">Log out</span>
+    </a>
+    <button class="sidebar__link sidebar__collapse" type="button" data-sidebar-collapse aria-controls="app-sidebar" aria-expanded="true">
+      {{ icons.icon('panel-left', size=18) }}<span class="sidebar__text" data-collapse-label>Collapse sidebar</span>
+    </button>
+  </div>
+</aside>

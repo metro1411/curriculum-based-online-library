@@ -77,7 +77,7 @@
               <form method="POST" action="{{ url_for('lecturer.delete_resource', resource_id=r.id) }}"
                     data-confirm="This will permanently delete &quot;{{ r.title }}&quot; and its file." data-confirm-title="Delete resource?">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn btn-ghost btn-sm btn-icon" title="Delete" aria-label="Delete" style="color:var(--error);">{{ icons.icon('trash', size=15) }}</button>
+                <button type="submit" class="btn btn-ghost-danger btn-sm btn-icon" title="Delete" aria-label="Delete">{{ icons.icon('trash', size=15) }}</button>
               </form>
             </div>
           </td>

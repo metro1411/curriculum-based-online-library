@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from extensions import db
 from models import (
-    LearningEvent, ResourceView, Topic, AIAnswerFeedback, AIMessage, AIConversation,
+    utcnow_naive, LearningEvent, ResourceView, Topic, AIAnswerFeedback, AIMessage, AIConversation,
     AcademicQuestion, Resource, User, Module, Semester, NtaLevel, Programme,
 )
 
@@ -18,7 +18,7 @@ from models import (
 def utcnow():
     # SQLite returns naive datetimes for this project, so analytics uses the
     # same representation for safe Python-side date comparisons.
-    return datetime.utcnow()
+    return utcnow_naive()
 
 
 def record_learning_event(student_id, module_id, event_type, *, topic_id=None,

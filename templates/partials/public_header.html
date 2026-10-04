@@ -1,0 +1,16 @@
+{% import "partials/icons.html" as icons %}
+<header class="public-header">
+  <div class="container public-header__inner">
+    <a class="brand" href="{{ url_for('main.landing') }}">
+      <span class="brand__mark">{{ icons.icon('book-open', size=18) }}</span>
+      <span class="brand__text"><span>Smart DIT<span class="brand__long"> Learning Hub</span></span><small>Academic learning environment</small></span>
+    </a>
+    <div class="public-header__actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="Switch colour theme">
+        {{ icons.icon('moon', size=18, cls='icon theme-icon--moon') }}{{ icons.icon('sun', size=18, cls='icon theme-icon--sun') }}
+      </button>
+      {% if request.endpoint != 'auth.login' %}<a class="btn btn-ghost btn-sm" href="{{ url_for('auth.login') }}">Sign in</a>{% endif %}
+      {% if request.endpoint != 'auth.register' %}<a class="btn btn-primary btn-sm" href="{{ url_for('auth.register') }}">Create account</a>{% endif %}
+    </div>
+  </div>
+</header>

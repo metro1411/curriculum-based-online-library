@@ -15,7 +15,7 @@
     <div class="hero-actions">
       <a href="{{ url_for('student.departments') }}" class="btn btn-primary btn-lg">{{ icons.icon('grid', size=18) }} Explore learning library</a>
       <a href="{{ url_for('ai.assistant') }}" class="btn btn-secondary btn-lg">{{ icons.icon('sparkles', size=18) }} Ask DIT AI</a>
-      <button type="button" class="btn btn-ghost btn-lg" data-open-search>{{ icons.icon('search', size=18) }} Search</button>
+      <button type="button" class="btn btn-ghost btn-lg" data-open-palette>{{ icons.icon('search', size=18) }} Search <kbd>Ctrl K</kbd></button>
     </div>
   </div>
 
@@ -28,9 +28,18 @@
   </section>
 
   <section class="dashboard-grid dashboard-grid--priority dashboard-grid--streak">
-    <article class="card card-pad streak-card"><div><span class="section-kicker">Verified learning momentum</span><h2>{{ profile_summary.current_streak }} day streak</h2><p>A day counts after a genuine academic question or 10 active minutes with a learning resource. Idle and background tabs do not count.</p></div><a class="btn btn-secondary btn-sm" href="{{ url_for('profile.settings') }}">View goals & profile</a></article>
+    <article class="card card-pad streak-card"><div><span class="section-kicker">Verified learning momentum</span><h2><span class="streak-flame">{{ icons.icon('flame', size=20) }}</span>{{ profile_summary.current_streak }} day streak</h2><p>A day counts after a genuine academic question or 10 active minutes with a learning resource. Idle and background tabs do not count.</p></div><a class="btn btn-secondary btn-sm" href="{{ url_for('profile.settings') }}">View goals & profile</a></article>
     <article class="card card-pad achievement-card"><span class="section-kicker">Personal achievements</span>{% if profile_summary.achievements %}<div class="achievement-list">{% for achievement in profile_summary.achievements[:3] %}<div><strong>{{ achievement.title }}</strong><small>{{ achievement.detail }}</small></div>{% endfor %}</div>{% else %}<p>Begin studying to unlock your first private learning achievement.</p>{% endif %}</article>
   </section>
+
+  {% if latest_announcements %}
+  <section class="card card-pad announcement-digest" aria-labelledby="digest-title">
+    <div class="section-header"><div><span class="section-kicker">From your lecturers</span><h2 id="digest-title">{{ icons.icon('megaphone', size=18) }} Latest announcements</h2></div><a href="{{ url_for('student.announcements_page') }}" class="text-link">View all {{ icons.icon('arrow-right', size=13) }}</a></div>
+    {% for item in latest_announcements %}
+    <a class="mini-resource" href="{{ url_for('student.announcements_page', module_id=item.module_id) }}#{{ item.anchor }}"><span class="mini-resource__icon">{{ icons.icon('pin' if item.is_pinned else 'megaphone', size=16) }}</span><div><div class="mini-resource__title">{{ item.title }}</div><div class="mini-resource__meta">{{ item.module.code or item.module.name }} · {{ item.author.full_name }} · {{ item.created_at.strftime('%d %b') }}</div></div>{{ icons.icon('arrow-right', size=15) }}</a>
+    {% endfor %}
+  </section>
+  {% endif %}
 
   <section class="dashboard-grid dashboard-grid--priority">
     <article class="card card-pad dashboard-feature-card">

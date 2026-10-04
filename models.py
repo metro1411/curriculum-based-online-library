@@ -29,6 +29,14 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+def utcnow_naive():
+    """Naive UTC time for comparisons with stored, timezone-less columns.
+
+    Replaces the deprecated ``datetime.utcnow()`` without changing behaviour.
+    """
+    return utcnow().replace(tzinfo=None)
+
+
 # ---------------------------------------------------------------------------
 # Users
 # ---------------------------------------------------------------------------
@@ -516,10 +524,18 @@ class Announcement(db.Model):
     title = db.Column(db.String(200), nullable=False)
     body = db.Column(db.Text, nullable=False)
     is_pinned = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+    # Delivery record: how many enrolled students were notified, and whether
+    # the lecturer also asked for email delivery.
+    recipient_count = db.Column(db.Integer, default=0, nullable=False)
+    emailed = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False, index=True)
 
     module = db.relationship("Module")
     author = db.relationship("User", foreign_keys=[author_id])
+
+    @property
+    def anchor(self):
+        return f"announcement-{self.id}"
 
 
 class LearningEvent(db.Model):

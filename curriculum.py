@@ -10,6 +10,7 @@ future change to the hierarchy only needs to happen once.
 
 from flask import url_for, render_template
 
+from extensions import db
 from models import Department, Programme, NtaLevel, Semester, Module
 
 
@@ -34,7 +35,7 @@ def get_semester_or_404(level, semester_number):
 
 
 def get_module_or_404(module_id):
-    return Module.query.get_or_404(module_id)
+    return db.get_or_404(Module, module_id)
 
 
 _ENDPOINTS = {
@@ -55,8 +56,8 @@ _ENDPOINTS = {
 }
 
 _ROOT_LABEL = {
-    "student": "Academic Archive",
-    "lecturer": "Upload Wizard",
+    "student": "Learning library",
+    "lecturer": "Upload resource",
 }
 
 

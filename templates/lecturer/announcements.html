@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% from "partials/announcement.html" import announcement_card %}
+{% block title %}Announcements | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header">
+    <span class="page-header__eyebrow">Class communication</span>
+    <h1>Announcements</h1>
+    <p>Message every student enrolled in one of your modules. They get an alert immediately and can reply through private questions.</p>
+  </div>
+
+  <div class="announcement-layout">
+    <section class="card card-pad announcement-composer">
+      <div class="section-header"><div><span class="section-kicker">New announcement</span><h2>Send to a module</h2></div></div>
+      {% if modules %}
+      <form method="POST" data-announcement-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+          <label class="form-label" for="announcement-module">Module</label>
+          <select class="form-select" id="announcement-module" name="module_id" required>
+            {% if modules|length > 1 %}<option value="">Choose a module</option>{% endif %}
+            {% for module in modules %}<option value="{{ module.id }}" {{ 'selected' if module.id == selected_module_id }}>{{ module.code or 'Code pending' }} · {{ module.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="announcement-title">Title</label>
+          <input class="form-input" id="announcement-title" name="title" maxlength="{{ title_max }}" required placeholder="e.g. Lab 2 moved to Thursday" data-char-count>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="announcement-body">Message</label>
+          <textarea class="form-textarea" id="announcement-body" name="body" rows="6" maxlength="{{ body_max }}" required placeholder="What should students know or do?" data-char-count></textarea>
+        </div>
+        <div class="announcement-options">
+          <label class="form-check form-check--card"><input type="checkbox" name="is_pinned"> <span><strong>Pin to the top</strong><small>Keep it first on students’ announcement lists.</small></span></label>
+          <label class="form-check form-check--card"><input type="checkbox" name="send_email"> <span><strong>Also send by email</strong><small>Respects each student’s email preference. Sending can take a moment.</small></span></label>
+        </div>
+        <button class="btn btn-primary btn-block mt-5" type="submit">{{ icons.icon('send', size=16) }} Send announcement</button>
+      </form>
+      {% else %}
+      <div class="empty-state empty-state--compact"><p>You need an approved, published module before you can send announcements.</p><a class="btn btn-secondary btn-sm" href="{{ url_for('lecturer.workspace') }}">Open module workspace</a></div>
+      {% endif %}
+    </section>
+
+    <section class="announcement-feed" aria-label="Sent announcements">
+      <div class="section-header">
+        <div><span class="section-kicker">Sent</span><h2>Your announcements</h2></div>
+        <span class="badge badge-neutral">{{ announcements|length }}</span>
+      </div>
+      {% if modules|length > 1 %}
+      <nav class="chip-filter" aria-label="Filter by module">
+        <a class="chip{{ ' is-active' if not selected_module_id }}" href="{{ url_for('lecturer.announcements_page') }}">All modules</a>
+        {% for module in modules %}<a class="chip{{ ' is-active' if module.id == selected_module_id }}" href="{{ url_for('lecturer.announcements_page', module_id=module.id) }}">{{ module.code or module.name }}</a>{% endfor %}
+      </nav>
+      {% endif %}
+      {% for item in announcements %}
+        {{ announcement_card(item, manage=true) }}
+      {% else %}
+      <div class="card empty-state"><span class="empty-state__icon">{{ icons.icon('megaphone', size=24) }}</span><h3>No announcements yet</h3><p>Your first announcement will appear here with how many students it reached.</p></div>
+      {% endfor %}
+    </section>
+  </div>
+</div>
+{% endblock %}

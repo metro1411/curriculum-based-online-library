@@ -12,14 +12,13 @@ created, so re-running never duplicates rows.
 import os
 import logging
 import mimetypes
-from datetime import datetime
 
 from flask import current_app
 
 from extensions import db
 from models import (
     User, Department, AcademicYear, Programme, NtaLevel, Semester, Module, Resource,
-    ResourceChunk, LecturerAssignment, Topic,
+    ResourceChunk, LecturerAssignment, Topic, utcnow_naive,
 )
 from utils import build_stored_filename
 from file_processing import process_resource_text
@@ -200,7 +199,7 @@ def _seed_curriculum():
         "instrumentation and related technologies.",
         is_active=True, order=1,
     )
-    now = datetime.utcnow()
+    now = utcnow_naive()
     academic_start = now.year if now.month >= 8 else now.year - 1
     academic_label = os.environ.get(
         "CURRENT_ACADEMIC_YEAR", f"{academic_start}/{academic_start + 1}"

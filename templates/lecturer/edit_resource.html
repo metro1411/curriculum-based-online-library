@@ -12,7 +12,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <div class="form-group">
-      <label class="form-label" for="title">Resource title <span style="color:var(--error);">*</span></label>
+      <label class="form-label" for="title">Resource title <span class="required" aria-hidden="true">*</span></label>
       <input class="form-input" id="title" name="title" type="text" required maxlength="250" value="{{ resource.title }}">
     </div>
 
@@ -34,17 +34,17 @@
     </div>
     <div class="form-group"><label class="form-label" for="topic_id">Topic</label><select class="form-select" id="topic_id" name="topic_id"><option value="">General module resource</option>{% for topic in topics %}<option value="{{ topic.id }}" {{ 'selected' if resource.topic_id == topic.id }}>{{ topic.category_label }} · {{ topic.unit_label or 'Topic' }} · {{ topic.title }}</option>{% endfor %}</select></div>
 
-    <hr style="border: none; border-top: 1px solid var(--border-color); margin: 24px 0;">
+    <hr>
 
     {% if resource.stored_filename %}
     <div class="form-group">
       <label class="form-label">Current file</label>
-      <p class="text-muted" style="font-size:0.85rem;">{{ resource.original_filename }} ({{ resource.file_size_bytes|filesize }})</p>
+      <p class="text-muted text-small">{{ resource.original_filename }} ({{ resource.file_size_bytes|filesize }})</p>
       <label class="form-file-drop" tabindex="0">
         {{ icons.icon('upload', size=24) }}
-        <p class="mb-0 mt-4" style="font-weight:650;">Click to replace the file (optional)</p>
-        <p class="text-muted mb-0" style="font-size:0.8rem;">PDF, DOCX, PPTX, TXT, MD, MP4 or WEBM &middot; up to 30 MB</p>
-        <div data-filename style="display:none;"></div>
+        <p class="form-file-drop__title">Click to replace the file (optional)</p>
+        <p class="form-file-drop__hint">PDF, DOCX, PPTX, TXT, MD, MP4 or WEBM &middot; up to 30 MB</p>
+        <div data-filename hidden></div>
         <input type="file" name="file" accept=".pdf,.docx,.pptx,.txt,.md,.mp4,.webm">
       </label>
     </div>
@@ -60,7 +60,7 @@
       <label for="verified" class="mb-0">Mark as DIT Verified</label>
     </div>
 
-    <div class="flex gap-3 mt-6">
+    <div class="form-actions">
       <button type="submit" class="btn btn-primary btn-lg">{{ icons.icon('check-circle', size=17) }} Save Changes</button>
       <a href="{{ url_for('lecturer.manage_resources') }}" class="btn btn-ghost btn-lg">Cancel</a>
     </div>

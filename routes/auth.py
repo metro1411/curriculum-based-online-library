@@ -52,7 +52,7 @@ def _destination(user):
     return url_for("student.dashboard")
 
 
-def _login_user_from_form(*, required_role=None, template="auth/login.html"):
+def _login_user_from_form():
     identifier = (request.form.get("identifier") or "").strip().lower()
     password = request.form.get("password") or ""
     remember = bool(request.form.get("remember"))
@@ -65,8 +65,6 @@ def _login_user_from_form(*, required_role=None, template="auth/login.html"):
             User.registration_number == identifier,
         )
     ).first()
-    if required_role and user and user.role != required_role:
-        user = None
 
     if user and user.check_password(password):
         if user.account_status == "pending":
@@ -83,7 +81,7 @@ def _login_user_from_form(*, required_role=None, template="auth/login.html"):
     else:
         flash("Incorrect ID number, email or password. Please try again.", "error")
 
-    return render_template(template, next=request.form.get("next") or request.args.get("next", ""))
+    return render_template("auth/login.html", next=request.form.get("next") or request.args.get("next", ""))
 
 
 def _registration_options():
@@ -134,21 +132,14 @@ def login():
 
 
 @auth_bp.route("/student/login", methods=["GET", "POST"])
-def student_login():
-    if current_user.is_authenticated:
-        return redirect(_destination(current_user))
-    if request.method == "POST":
-        return _login_user_from_form(required_role="student", template="auth/student_login.html")
-    return render_template("auth/student_login.html", next=request.args.get("next", ""))
-
-
 @auth_bp.route("/lecturer/login", methods=["GET", "POST"])
-def lecturer_login():
-    if current_user.is_authenticated:
-        return redirect(_destination(current_user))
-    if request.method == "POST":
-        return _login_user_from_form(required_role="lecturer", template="auth/lecturer_login.html")
-    return render_template("auth/lecturer_login.html", next=request.args.get("next", ""))
+def legacy_login():
+    """Old role-specific sign-in URLs now share the single login page.
+
+    307 keeps the method and body, so old forms and scripts that POST here
+    still sign in; bookmarks land on /login with their ``next`` preserved.
+    """
+    return redirect(url_for("auth.login", **request.args), code=307)
 
 
 @auth_bp.route("/register", methods=["GET", "POST"])
@@ -251,8 +242,10 @@ def register():
 
 
 @auth_bp.route("/logout")
-@login_required
 def logout():
-    logout_user()
-    flash("You have been logged out.", "info")
+    # Not @login_required: an expired session would otherwise bounce to
+    # /login?next=/logout and sign the user straight back out after login.
+    if current_user.is_authenticated:
+        logout_user()
+        flash("You have been logged out.", "info")
     return redirect(url_for("main.landing"))

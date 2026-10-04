@@ -51,7 +51,7 @@
       <div class="form-group"><label class="form-label" for="hod_activation_code">Activation code</label><input class="form-input" id="hod_activation_code" name="hod_activation_code" type="password" autocomplete="off" data-role-required></div>
     </fieldset>
     <button class="btn btn-primary btn-lg" type="submit">{{ icons.icon('arrow-right', size=17) }} Create account</button>
-    <p class="mt-4 text-muted" style="font-size:.84rem;">Already registered? <a href="{{ url_for('auth.login') }}">Sign in instead</a>.</p>
+    <p class="text-muted text-small mb-0">Already registered? <a href="{{ url_for('auth.login') }}">Sign in instead</a>.</p>
   </form>
 </div>
 {% endblock %}
