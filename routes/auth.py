@@ -34,10 +34,14 @@ def _role_for_registration_number(value):
         return "lecturer"
     if value.startswith("5000"):
         return "department_head"
+    if value.startswith("9000"):
+        return "admin"
     return None
 
 
 def _destination(user):
+    if user.is_admin:
+        return url_for("admin.dashboard")
     if user.is_department_head:
         return url_for("department.dashboard")
     if user.is_lecturer:
@@ -150,7 +154,8 @@ def register():
         password_confirm = request.form.get("password_confirm") or ""
 
         if role is None:
-            flash("Use an 8–10 digit ID beginning with 2403 (student), 1403 (lecturer), or 5000 (Head of Department).", "error")
+            flash("Use an 8–10 digit ID beginning with 2403 (student), 1403 (lecturer), 5000 (Head of Department) "
+                  "or 9000 (Curriculum Administrator).", "error")
         elif not 3 <= len(full_name) <= 150:
             flash("Enter your full name.", "error")
         elif "@" not in email or len(email) > 150:
@@ -176,6 +181,12 @@ def register():
                 department = db.session.get(Department, department_id) if department_id else None
                 if not department or not department.is_active:
                     flash("Choose an active department for your lecturer request.", "error")
+                    return render_template("auth/register.html", departments=departments, programmes=programmes,
+                                           levels=levels, semesters=semesters)
+            elif role == "admin":
+                code = current_app.config["ADMIN_ACTIVATION_CODE"]
+                if not code or (request.form.get("admin_activation_code") or "") != code:
+                    flash("A valid Curriculum Administrator activation code is required.", "error")
                     return render_template("auth/register.html", departments=departments, programmes=programmes,
                                            levels=levels, semesters=semesters)
             else:
@@ -226,6 +237,8 @@ def register():
                 flash("Your lecturer request has been submitted. You can sign in after Head of Department approval.", "success")
             elif role == "department_head":
                 flash("Department Head account activated securely. Please sign in.", "success")
+            elif role == "admin":
+                flash("Curriculum Administrator account activated. Please sign in.", "success")
             else:
                 flash("Your student account is ready. Please sign in to personalise your learning space.", "success")
             return redirect(url_for("auth.login"))

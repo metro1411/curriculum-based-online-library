@@ -31,6 +31,7 @@ os.environ.update({
     "SUPABASE_URL": "",
     "SUPABASE_SERVICE_ROLE_KEY": "",
     "HOD_ACTIVATION_CODE": "isolated-test-hod-code",
+    "ADMIN_ACTIVATION_CODE": "isolated-test-admin-code",
     "LOAD_BUNDLED_PROSPECTUS": "0",
     "SMTP_HOST": "",
     "SMTP_USERNAME": "",
@@ -170,6 +171,19 @@ def hod(app):
     return sign_in(app.test_client(), "50000001", password)
 
 
+@pytest.fixture(scope="session")
+def admin(app):
+    """A Curriculum Administrator, activated once per run through sign-up."""
+    password = "CurriculumAdmin@123"
+    response = app.test_client().post("/register", data={
+        "registration_number": "90000001", "full_name": "Curriculum Administrator",
+        "email": "admin@example.test", "password": password, "password_confirm": password,
+        "admin_activation_code": "isolated-test-admin-code",
+    })
+    assert response.status_code == 302
+    return sign_in(app.test_client(), "90000001", password)
+
+
 @pytest.fixture
 def approved_lecturer(app, hod, register_lecturer, seeded):
     number, password = register_lecturer()
@@ -186,7 +200,7 @@ def approved_lecturer(app, hod, register_lecturer, seeded):
 
 @pytest.fixture
 def hod_module_id(app, seeded):
-    """A fresh live module in the student's semester (modules normally come from a prospectus)."""
+    """A fresh live module in the student's semester."""
     with app.app_context():
         year = AcademicYear.query.filter_by(department_id=seeded["department_id"], is_current=True).one()
         module = Module(semester_id=seeded["semester_id"], academic_year_id=year.id,

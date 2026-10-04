@@ -52,6 +52,8 @@ def _visible_module_query():
         return Module.query.join(Semester).join(NtaLevel).join(Programme).filter(
             Programme.department_id == current_user.department_id
         )
+    if current_user.is_admin:
+        return Module.query
     abort(403)
 
 
@@ -93,6 +95,8 @@ def _visible_resource_query():
         return Resource.query.join(Module).join(Semester).join(NtaLevel).join(Programme).filter(
             Programme.department_id == current_user.department_id
         )
+    if current_user.is_admin:
+        return Resource.query
     abort(403)
 
 
@@ -326,9 +330,9 @@ def my_recommendations():
 @api_bp.route("/curriculum/versions")
 @login_required
 def curriculum_versions():
-    """HODs see every upload; others see the live and replaced ones only."""
+    """Administrators and HODs see every upload; others see the live and replaced ones only."""
     query = CurriculumVersion.query.order_by(CurriculumVersion.created_at.desc())
-    if not current_user.is_department_head:
+    if not (current_user.is_admin or current_user.is_department_head):
         query = query.filter(CurriculumVersion.status.in_(("published", "archived")))
     return jsonify(versions=[{
         "id": v.id, "label": v.label, "academic_year": v.academic_year_label,
@@ -342,13 +346,13 @@ def curriculum_versions():
 @login_required
 def curriculum_version_detail(version_id):
     version = db.get_or_404(CurriculumVersion, version_id)
-    if not current_user.is_department_head and version.status not in ("published", "archived"):
+    if not (current_user.is_admin or current_user.is_department_head) and version.status not in ("published", "archived"):
         abort(404)
     payload = {
         "id": version.id, "label": version.label, "academic_year": version.academic_year_label,
         "status": version.status, "is_demo": version.is_demo,
     }
-    if current_user.is_department_head:
+    if current_user.is_admin or current_user.is_department_head:
         payload["entries"] = [{
             "id": e.id, "programme": e.programme.name if e.programme else None,
             "department": e.programme.department_name if e.programme else None,

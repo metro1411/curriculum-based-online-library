@@ -7,8 +7,9 @@ same answer is given by HTML routes, JSON endpoints and tests:
 * students read published curriculum and their own data only;
 * lecturers manage resources they uploaded, inside modules they are approved
   to teach, and never change curriculum structure;
-* heads of department upload the prospectus (which decides every module)
-  and manage their own department's lecturers and students.
+* heads of department manage their own department's modules, academic
+  years, lecturers and students;
+* curriculum administrators upload the prospectus for every department.
 """
 
 from __future__ import annotations
@@ -38,6 +39,8 @@ def can_view_module_students(user, module):
     """Lecturers see the class list only for modules they are approved to teach."""
     if not user or module is None:
         return False
+    if user.is_admin:
+        return True
     if user.is_department_head:
         return module.semester.nta_level.programme.department_id == user.department_id
     return lecturer_teaches_module(user, module.id)

@@ -2,8 +2,8 @@
 {% block title %}{{ student.full_name }} · academic context | {{ app_name }}{% endblock %}
 {% block content %}
 <div class="container fade-in">
-  <div class="page-header page-header--split"><div><span class="page-header__eyebrow"><a href="{{ url_for('department.students') }}">Students</a></span><h1>{{ student.full_name }}</h1><p>{{ student.registration_number or student.email }} · Source: {{ context.source_label }}{% if context.last_synced_at %} · last SOMA sync {{ context.last_synced_at.strftime('%d %b %Y %H:%M') }}{% endif %}</p></div>
-    <form method="POST" action="{{ url_for('department.student_soma_sync', user_id=student.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-secondary">Sync from SOMA</button></form></div>
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow"><a href="{{ url_for(area ~ '.students') }}">Students</a></span><h1>{{ student.full_name }}</h1><p>{{ student.registration_number or student.email }} · Source: {{ context.source_label }}{% if context.last_synced_at %} · last SOMA sync {{ context.last_synced_at.strftime('%d %b %Y %H:%M') }}{% endif %}</p></div>
+    <form method="POST" action="{{ url_for(area ~ '.student_soma_sync', user_id=student.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-secondary">Sync from SOMA</button></form></div>
 
   <div class="curriculum-admin-grid">
     <section class="card card-pad">

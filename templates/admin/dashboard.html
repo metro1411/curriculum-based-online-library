@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Curriculum administration | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header dashboard-hero page-header--split">
+    <div><span class="page-header__eyebrow">Curriculum Administrator</span><h1>DIT prospectus &amp; curriculum</h1><p>{% if live %}Live: {{ live.label }}, published {{ live.published_at.strftime('%d %b %Y') }}.{% else %}No prospectus is live yet.{% endif %}</p></div>
+    <div class="hero-actions"><a class="btn btn-primary" href="{{ url_for('admin.prospectus') }}">{{ icons.icon('upload', size=16) }} Upload prospectus</a>{% if live %}<a class="btn btn-secondary" href="{{ url_for('admin.prospectus_result', version_id=live.id) }}">View live report</a>{% endif %}</div>
+  </div>
+
+  <section class="stat-grid">
+    <article class="card stat-card"><div class="stat-card__value">{{ counts.departments }}</div><div class="stat-card__label">Departments</div></article>
+    <article class="card stat-card"><div class="stat-card__value">{{ counts.programmes }}</div><div class="stat-card__label">Programmes</div></article>
+    <article class="card stat-card"><div class="stat-card__value">{{ counts.modules }}</div><div class="stat-card__label">Live modules</div></article>
+    <article class="card stat-card"><div class="stat-card__value">{{ counts.students }}</div><div class="stat-card__label">Students</div></article>
+  </section>
+
+  <div class="dashboard-grid dashboard-grid--priority mt-6">
+    <section class="card card-pad">
+      <div class="section-header"><div><h2>Recent uploads</h2></div><a class="text-link" href="{{ url_for('admin.prospectus') }}">All uploads</a></div>
+      {% for version in versions %}<div class="request-preview"><div><strong>{{ version.label }}</strong><small>{{ version.created_at.strftime('%d %b %Y · %H:%M') }}{{ ' · ' ~ version.created_by.full_name if version.created_by }}</small></div><a class="status-chip status-chip--{{ 'success' if version.status == 'published' else 'muted' }}" href="{{ url_for('admin.prospectus_result', version_id=version.id) }}">{{ version.status_label }}</a></div>{% else %}<div class="empty-state empty-state--compact"><p>No prospectus has been uploaded.</p></div>{% endfor %}
+    </section>
+    <section class="card card-pad">
+      <div class="section-header"><div><h2>SOMA</h2></div><span class="status-chip status-chip--{{ 'success' if soma_health.status in ('ok', 'configured') else 'muted' }}">{{ soma_health.status|replace('_', ' ')|title }}</span></div>
+      <p>{{ soma_health.message }}{% if soma_adapter == 'mock' %} <strong>The DEMO mock adapter is active.</strong>{% endif %}</p>
+      {% for log in recent_syncs %}<div class="insight-list-item"><span class="rank">{{ log.status[:1]|upper }}</span><div><strong>{{ log.student.full_name if log.student else 'Unknown student' }} · {{ log.status|replace('_', ' ') }}</strong><small>{{ log.created_at.strftime('%d %b %Y · %H:%M') }} · {{ log.message }}</small></div></div>{% endfor %}
+    </section>
+  </div>
+</div>
+{% endblock %}

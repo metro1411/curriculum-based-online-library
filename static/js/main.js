@@ -307,7 +307,8 @@
     var labels = {
       student: "Student",
       lecturer: "Lecturer · Head of Department approval required",
-      department_head: "Head of Department · protected activation"
+      department_head: "Head of Department · protected activation",
+      admin: "Curriculum Administrator · protected activation"
     };
 
     function filterOptions(select, predicate) {
@@ -350,6 +351,7 @@
       if (/^2403\d{4,6}$/.test(value)) return "student";
       if (/^1403\d{4,6}$/.test(value)) return "lecturer";
       if (/^5000\d{4,6}$/.test(value)) return "department_head";
+      if (/^9000\d{4,6}$/.test(value)) return "admin";
       return "";
     }
 
@@ -363,10 +365,14 @@
           field.required = selected && field.hasAttribute("data-role-required");
         });
       });
+      var departmentField = form.querySelector("[data-department-field]");
+      if (departmentField) departmentField.hidden = role === "admin";
+      department.required = role !== "admin";
+      department.disabled = role === "admin";
       if (role === "student") syncProgrammes();
       hint.textContent = role
         ? "Account type detected: " + labels[role]
-        : "Enter an 8-10 digit ID: 2403 for students, 1403 for lecturers, or 5000 for the Head of Department.";
+        : "Enter an 8-10 digit ID: 2403 for students, 1403 for lecturers, 5000 for the Head of Department or 9000 for the Curriculum Administrator.";
       hint.classList.toggle("is-detected", Boolean(role));
     }
 

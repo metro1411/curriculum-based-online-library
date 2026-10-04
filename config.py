@@ -141,6 +141,9 @@ class Config:
     # department-head account can be created. Keep it only in Render's
     # environment variables, never in GitHub or a public form.
     HOD_ACTIVATION_CODE = os.environ.get("HOD_ACTIVATION_CODE", "").strip()
+    # Signing up with a 9000 ID creates a Curriculum Administrator and needs
+    # this code. When it is not set, the HOD activation code is used.
+    ADMIN_ACTIVATION_CODE = os.environ.get("ADMIN_ACTIVATION_CODE", "").strip() or HOD_ACTIVATION_CODE
     # Publish the prospectus shipped in bundled_prospectus on first start.
     LOAD_BUNDLED_PROSPECTUS = os.environ.get("LOAD_BUNDLED_PROSPECTUS", "1") == "1"
 

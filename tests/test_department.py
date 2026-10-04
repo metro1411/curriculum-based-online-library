@@ -9,7 +9,7 @@ from models import (
 
 
 @pytest.mark.parametrize("path", [
-    "/department", "/department/lecturer-requests", "/department/curriculum", "/department/prospectus",
+    "/department", "/department/lecturer-requests", "/department/curriculum", "/department/curriculum?archived=1",
     "/department/students",
     "/department/lecturers", "/department/module-claims", "/department/audit-log",
 ])
@@ -53,9 +53,44 @@ def test_hod_approval_activates_lecturer(app, approved_lecturer, seeded):
         ).first()
 
 
-def test_hod_can_no_longer_hand_edit_modules(hod, hod_module_id):
-    assert hod.get(f"/department/curriculum/modules/{hod_module_id}/edit").status_code == 404
-    assert hod.post("/department/curriculum", data={"action": "module"}).status_code == 405
+def test_hod_manages_modules_and_academic_years(app, hod, seeded):
+    from models import AcademicYear, Module
+
+    with app.app_context():
+        programme_id, level_id, semester_id = seeded["programme_id"], seeded["level_id"], seeded["semester_id"]
+        department_id = seeded["department_id"]
+    assert hod.post("/department/curriculum", data={"action": "academic_year", "label": "2061/2062"}).status_code == 302
+    with app.app_context():
+        year = AcademicYear.query.filter_by(department_id=department_id, label="2061/2062").one()
+        year_id = year.id
+        current_id = AcademicYear.query.filter_by(department_id=department_id, is_current=True).one().id
+    created = hod.post("/department/curriculum", data={
+        "action": "module", "name": "DEMO Hand Added Module", "code": "DEMO 06101", "module_type": "elective",
+        "academic_year_id": year_id, "programme_id": programme_id, "nta_level_id": level_id,
+        "semester_id": semester_id,
+    })
+    assert created.status_code == 302
+    with app.app_context():
+        module = Module.query.filter_by(code="DEMO 06101").one()
+        module_id = module.id
+        assert module.is_published and module.provenance == "hod_manual" and module.type_label == "Elective Module"
+    assert b"DEMO Hand Added Module" in hod.get("/department/curriculum").data
+    assert hod.get(f"/department/curriculum/modules/{module_id}/edit").status_code == 200
+    assert hod.post(f"/department/curriculum/modules/{module_id}/edit", data={
+        "name": "DEMO Renamed Module", "code": "DEMO 06101", "module_type": "core",
+        "publication_status": "published",
+    }).status_code == 302
+    assert hod.post(f"/department/curriculum/modules/{module_id}/archive").status_code == 302
+    with app.app_context():
+        module = db.session.get(Module, module_id)
+        assert module.name == "DEMO Renamed Module" and module.publication_status == "archived"
+        assert AuditLog.query.filter_by(target_type="Module", target_id=module_id).count() == 3
+    assert b"DEMO Renamed Module" not in hod.get("/department/curriculum").data
+    assert b"DEMO Renamed Module" in hod.get("/department/curriculum?archived=1").data
+    assert hod.post(f"/department/curriculum/years/{year_id}/current").status_code == 302
+    assert hod.post(f"/department/curriculum/years/{current_id}/current").status_code == 302
+    with app.app_context():
+        assert db.session.get(AcademicYear, current_id).is_current
 
 
 def test_module_claim_requires_hod_approval_for_api_access(app, hod, approved_lecturer, hod_module_id):

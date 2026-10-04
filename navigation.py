@@ -98,9 +98,8 @@ _LECTURER = (
 _DEPARTMENT_HEAD = (
     NavSection("Department", (
         NavItem("Overview", "department.dashboard", "home", hint="Department health at a glance"),
-        NavItem("Prospectus", "department.prospectus", "upload",
-                matches=("department.prospectus_*",), hint="Upload the prospectus that sets every module"),
-        NavItem("Curriculum", "department.curriculum", "layers", hint="Live modules in your department"),
+        NavItem("Curriculum", "department.curriculum", "layers",
+                matches=("department.edit_module",), hint="Academic years and modules"),
         NavItem("Students", "department.students", "award",
                 matches=("department.student_*",), hint="Placement and registered modules"),
         NavItem("Lecturers", "department.lecturers", "users",
@@ -114,9 +113,24 @@ _DEPARTMENT_HEAD = (
 )
 
 
+_ADMIN = (
+    NavSection("Curriculum", (
+        NavItem("Overview", "admin.dashboard", "home", hint="Live prospectus and SOMA status"),
+        NavItem("Prospectus", "admin.prospectus", "upload",
+                matches=("admin.prospectus_*",), hint="Upload the prospectus for every department"),
+        NavItem("Students", "admin.students", "award",
+                matches=("admin.student_*",), hint="Placement and registered modules"),
+        NavItem("Audit log", "admin.audit_log", "shield-check", hint="Curriculum and role changes"),
+    )),
+    _ACCOUNT,
+)
+
+
 def sections_for(user) -> tuple[NavSection, ...]:
     if not getattr(user, "is_authenticated", False):
         return ()
+    if user.is_admin:
+        return _ADMIN
     if user.is_department_head:
         return _DEPARTMENT_HEAD
     if user.is_lecturer:
@@ -136,6 +150,8 @@ def search_target(user) -> dict | None:
 
 
 def role_label(user) -> str:
+    if user.is_admin:
+        return "Curriculum Administrator"
     if user.is_department_head:
         return "Head of Department"
     if user.is_lecturer:

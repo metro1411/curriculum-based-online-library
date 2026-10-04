@@ -3,7 +3,7 @@
 {% set outcome_labels = {'carried': 'Carried over', 'moved': 'Moved', 'new': 'New', 'retired': 'Retired', 'unplaced': 'Needs placing'} %}
 {% block content %}
 <div class="container fade-in">
-  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ version.status_label }}</span><h1>{{ version.label }}</h1><p>{% if version.status == 'failed' %}Nothing was published. Fix these problems in the file and upload it again.{% elif version.published_at %}Published {{ version.published_at.strftime('%d %b %Y · %H:%M') }}.{% endif %}</p></div><a class="btn btn-secondary" href="{{ url_for('department.prospectus') }}">Back to prospectus</a></div>
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ version.status_label }}</span><h1>{{ version.label }}</h1><p>{% if version.status == 'failed' %}Nothing was published. Fix these problems in the file and upload it again.{% elif version.published_at %}Published {{ version.published_at.strftime('%d %b %Y · %H:%M') }}.{% endif %}</p></div><a class="btn btn-secondary" href="{{ url_for('admin.prospectus') }}">Back to prospectus</a></div>
 
   {% if version.status == 'failed' %}
   <section class="card card-pad">
@@ -20,7 +20,7 @@
 
   {% if report.flagged_students or report.hidden_departments %}
   <section class="card card-pad mb-6">
-    {% if report.flagged_students %}<h2>Students to place</h2><p>Their programme, level or semester is not in this prospectus.</p><ul>{% for student in report.flagged_students %}<li><a href="{{ url_for('department.student_context', user_id=student.id) }}">{{ student.name }}</a></li>{% endfor %}</ul>{% endif %}
+    {% if report.flagged_students %}<h2>Students to place</h2><p>Their programme, level or semester is not in this prospectus.</p><ul>{% for student in report.flagged_students %}<li><a href="{{ url_for('admin.student_context', user_id=student.id) }}">{{ student.name }}</a></li>{% endfor %}</ul>{% endif %}
     {% if report.hidden_departments %}<h2>Hidden departments</h2><p>{{ report.hidden_departments|join(', ') }}</p>{% endif %}
   </section>
   {% endif %}
