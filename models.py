@@ -8,7 +8,18 @@ Curriculum hierarchy (mirrors the DIT / NTA academic structure):
     Department -> Programme -> NtaLevel -> Semester -> Module -> Resource
 
 Supporting models:
-    User            students and lecturers (role-based)
+    User            students, lecturers, HODs and curriculum administrators
+
+Curriculum / prospectus backbone (see docs/CURRICULUM_ARCHITECTURE.md):
+    ProspectusDocument      the original uploaded prospectus, kept for audit
+    ProspectusChunk         extracted prospectus text used by RAG once published
+    CurriculumVersion       one reviewable prospectus edition (draft -> published)
+    DraftProgramme          programme definitions staged inside a version
+    CurriculumEntry         one staged module row awaiting review/validation
+    ModulePrerequisite      live prerequisite relationships between modules
+    StudentAcademicContext  provenance of a student's academic placement
+    StudentModuleRegistration  modules a student is registered for
+    IntegrationSyncLog      record of every external-system (SOMA) sync attempt
     ResourceChunk   extracted text chunks used by the lightweight RAG engine
     ResourceView    "recently viewed" tracking
     Download        "recently downloaded" tracking
@@ -53,7 +64,7 @@ class User(UserMixin, db.Model):
     registration_number = db.Column(db.String(10), unique=True, nullable=True, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
 
-    # 'student', 'lecturer' or 'department_head'
+    # 'student', 'lecturer', 'department_head' or 'admin' (curriculum administrator)
     role = db.Column(db.String(20), nullable=False, default="student", index=True)
     # Pending lecturer accounts cannot sign in or publish until the department
     # head reviews the request. Existing accounts are treated as active.
@@ -101,6 +112,11 @@ class User(UserMixin, db.Model):
     @property
     def is_department_head(self):
         return self.role == "department_head"
+
+    @property
+    def is_admin(self):
+        """Curriculum administrator: manages prospectus versions institution-wide."""
+        return self.role == "admin"
 
     @property
     def is_pending(self):
@@ -195,6 +211,9 @@ class NtaLevel(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     programme_id = db.Column(db.Integer, db.ForeignKey("programmes.id"), nullable=False)
     level_number = db.Column(db.Integer, nullable=False)  # 4-9
+    # Optional human label from the prospectus, e.g. "Year 2". Never derived
+    # automatically because the NTA-level-to-year mapping differs by award.
+    year_label = db.Column(db.String(40), nullable=True)
     is_active = db.Column(db.Boolean, default=False, nullable=False)
 
     programme = db.relationship("Programme", back_populates="nta_levels")
@@ -210,6 +229,10 @@ class NtaLevel(db.Model):
     @property
     def label(self):
         return f"NTA Level {self.level_number}"
+
+    @property
+    def display_label(self):
+        return f"{self.label} · {self.year_label}" if self.year_label else self.label
 
 
 class Semester(db.Model):
@@ -246,6 +269,14 @@ class Module(db.Model):
     # them - see project documentation. Never auto-generate a fake code.
     code = db.Column(db.String(50), nullable=True)
     module_type = db.Column(db.String(30), nullable=False, default="core")
+    # Credits exactly as printed in the prospectus; never estimated.
+    credits = db.Column(db.Numeric(6, 2), nullable=True)
+    curriculum_version_id = db.Column(
+        db.Integer, db.ForeignKey("curriculum_versions.id"), nullable=True, index=True
+    )
+    # Where this module record came from: 'legacy_seed' (shipped with the app,
+    # not verified against a prospectus), 'hod_manual' or 'prospectus'.
+    provenance = db.Column(db.String(30), nullable=True)
     cohort_label = db.Column(db.String(80), nullable=True)
     description = db.Column(db.Text, nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
@@ -257,9 +288,33 @@ class Module(db.Model):
     semester = db.relationship("Semester", back_populates="modules")
     academic_year = db.relationship("AcademicYear", back_populates="modules")
     created_by = db.relationship("User", foreign_keys=[created_by_id])
+    curriculum_version = db.relationship("CurriculumVersion", foreign_keys=[curriculum_version_id])
     resources = db.relationship(
         "Resource", back_populates="module", cascade="all, delete-orphan"
     )
+    prerequisite_links = db.relationship(
+        "ModulePrerequisite", foreign_keys="ModulePrerequisite.module_id",
+        back_populates="module", cascade="all, delete-orphan",
+    )
+
+    @property
+    def prerequisites(self):
+        return [link.prerequisite for link in self.prerequisite_links if link.prerequisite]
+
+    @property
+    def provenance_label(self):
+        return {
+            "legacy_seed": "Legacy seed · not verified against a prospectus",
+            "hod_manual": "Added by Head of Department",
+            "prospectus": "Published from prospectus",
+        }.get(self.provenance or "", "Source not recorded")
+
+    @property
+    def credits_label(self):
+        if self.credits is None:
+            return None
+        value = float(self.credits)
+        return str(int(value)) if value.is_integer() else f"{value:g}"
 
     @property
     def type_label(self):
@@ -311,6 +366,9 @@ class Resource(db.Model):
     title = db.Column(db.String(250), nullable=False)
     description = db.Column(db.Text, nullable=True)
     resource_type = db.Column(db.String(30), nullable=False, default="other")
+    # Optional lecturer metadata; both feed curriculum-aware retrieval.
+    learning_objectives = db.Column(db.Text, nullable=True)
+    lecturer_remarks = db.Column(db.Text, nullable=True)
 
     # Uploaded file (mutually exclusive-ish with external_url, but both are
     # allowed to be blank-checked independently for flexibility)
@@ -449,6 +507,9 @@ class AIMessage(db.Model):
     content_html = db.Column(db.Text, nullable=True)  # rendered markdown (assistant only)
     sources_json = db.Column(db.Text, nullable=True)  # JSON list of {id, title, type}
     general_guidance = db.Column(db.Boolean, default=False, nullable=False)
+    # Curriculum scope of the answer: lecturer_content | dit_curriculum |
+    # general_academic | outside_curriculum (see curriculum_context.py).
+    context_label = db.Column(db.String(30), nullable=True)
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
 
     conversation = db.relationship("AIConversation", back_populates="messages")
@@ -743,3 +804,290 @@ class AuditLog(db.Model):
 
     actor = db.relationship("User", foreign_keys=[actor_id])
     department = db.relationship("Department", foreign_keys=[department_id])
+
+
+# ---------------------------------------------------------------------------
+# Prospectus / curriculum versioning
+# ---------------------------------------------------------------------------
+
+CURRICULUM_VERSION_STATUSES = (
+    ("draft", "Draft"),
+    ("validated", "Validated"),
+    ("approved", "Approved"),
+    ("published", "Published"),
+    ("archived", "Archived"),
+)
+CURRICULUM_VERSION_STATUS_LABELS = dict(CURRICULUM_VERSION_STATUSES)
+
+
+class ProspectusDocument(db.Model):
+    """The original prospectus file. Never modified after upload."""
+
+    __tablename__ = "prospectus_documents"
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(250), nullable=False)
+    academic_year_label = db.Column(db.String(20), nullable=True)
+    stored_filename = db.Column(db.String(300), nullable=False)
+    original_filename = db.Column(db.String(300), nullable=False)
+    mime_type = db.Column(db.String(120), nullable=True)
+    file_size_bytes = db.Column(db.Integer, nullable=True)
+    sha256 = db.Column(db.String(64), nullable=True, index=True)
+    # pending | success | failed | not_applicable
+    extraction_status = db.Column(db.String(20), nullable=False, default="pending")
+    extraction_message = db.Column(db.String(500), nullable=True)
+    extracted_text = db.Column(db.Text, nullable=True)
+    uploaded_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+
+    uploaded_by = db.relationship("User", foreign_keys=[uploaded_by_id])
+    chunks = db.relationship(
+        "ProspectusChunk", back_populates="document", cascade="all, delete-orphan",
+        order_by="ProspectusChunk.chunk_index",
+    )
+
+
+class ProspectusChunk(db.Model):
+    __tablename__ = "prospectus_chunks"
+
+    id = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(db.Integer, db.ForeignKey("prospectus_documents.id"), nullable=False, index=True)
+    chunk_index = db.Column(db.Integer, nullable=False)
+    content = db.Column(db.Text, nullable=False)
+
+    document = db.relationship("ProspectusDocument", back_populates="chunks")
+
+
+class CurriculumVersion(db.Model):
+    """A reviewable prospectus edition.
+
+    Draft content lives in DraftProgramme / CurriculumEntry staging rows and
+    is invisible to students. Publishing materialises it into the live
+    Department -> Programme -> NtaLevel -> Semester -> Module tree under the
+    version's academic year; archiving retires it without deleting anything.
+    """
+
+    __tablename__ = "curriculum_versions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    label = db.Column(db.String(150), nullable=False, unique=True)
+    academic_year_label = db.Column(db.String(20), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="draft", index=True)
+    # 'prospectus_import' | 'manual'
+    source = db.Column(db.String(30), nullable=False, default="manual")
+    # Demo versions are for training/testing only and are labelled everywhere.
+    is_demo = db.Column(db.Boolean, nullable=False, default=False)
+    notes = db.Column(db.Text, nullable=True)
+    prospectus_document_id = db.Column(
+        db.Integer, db.ForeignKey("prospectus_documents.id"), nullable=True, index=True
+    )
+    last_validation_json = db.Column(db.Text, nullable=True)
+    validated_at = db.Column(db.DateTime, nullable=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    approved_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    published_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    published_at = db.Column(db.DateTime, nullable=True)
+    archived_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    archived_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    prospectus_document = db.relationship("ProspectusDocument")
+    created_by = db.relationship("User", foreign_keys=[created_by_id])
+    approved_by = db.relationship("User", foreign_keys=[approved_by_id])
+    published_by = db.relationship("User", foreign_keys=[published_by_id])
+    archived_by = db.relationship("User", foreign_keys=[archived_by_id])
+    programmes = db.relationship(
+        "DraftProgramme", back_populates="version", cascade="all, delete-orphan",
+        order_by="DraftProgramme.department_name, DraftProgramme.name",
+    )
+    entries = db.relationship(
+        "CurriculumEntry", back_populates="version", cascade="all, delete-orphan",
+        order_by="CurriculumEntry.nta_level, CurriculumEntry.semester_number, CurriculumEntry.id",
+    )
+
+    @property
+    def status_label(self):
+        return CURRICULUM_VERSION_STATUS_LABELS.get(self.status, self.status.title())
+
+    @property
+    def is_editable(self):
+        """Published and archived versions are immutable historical records."""
+        return self.status in {"draft", "validated", "approved"}
+
+
+class DraftProgramme(db.Model):
+    """A programme definition staged inside a curriculum version."""
+
+    __tablename__ = "draft_programmes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey("curriculum_versions.id"), nullable=False, index=True)
+    department_name = db.Column(db.String(150), nullable=False)
+    name = db.Column(db.String(150), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    # Comma-separated NTA levels this programme covers, e.g. "4,5,6".
+    levels_csv = db.Column(db.String(60), nullable=False)
+    semesters_per_level = db.Column(db.Integer, nullable=False, default=2)
+    # Optional "Year N" labels keyed by level, stored as "5=Year 1;6=Year 2".
+    year_labels = db.Column(db.String(200), nullable=True)
+
+    version = db.relationship("CurriculumVersion", back_populates="programmes")
+    entries = db.relationship("CurriculumEntry", back_populates="programme")
+
+    __table_args__ = (
+        db.UniqueConstraint("version_id", "department_name", "name", name="uq_draft_programme_version_name"),
+    )
+
+    @property
+    def levels(self):
+        result = []
+        for part in (self.levels_csv or "").split(","):
+            part = part.strip()
+            if part.isdigit():
+                result.append(int(part))
+        return sorted(set(result))
+
+    @property
+    def year_label_map(self):
+        mapping = {}
+        for part in (self.year_labels or "").split(";"):
+            if "=" in part:
+                level, label = part.split("=", 1)
+                if level.strip().isdigit() and label.strip():
+                    mapping[int(level.strip())] = label.strip()[:40]
+        return mapping
+
+
+ENTRY_REVIEW_STATUSES = (("needs_review", "Needs review"), ("reviewed", "Reviewed"), ("rejected", "Rejected"))
+
+
+class CurriculumEntry(db.Model):
+    """One staged module line awaiting administrator review."""
+
+    __tablename__ = "curriculum_entries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey("curriculum_versions.id"), nullable=False, index=True)
+    programme_id = db.Column(db.Integer, db.ForeignKey("draft_programmes.id"), nullable=True, index=True)
+    nta_level = db.Column(db.Integer, nullable=True)
+    semester_number = db.Column(db.Integer, nullable=True)
+    module_code = db.Column(db.String(50), nullable=True)
+    module_name = db.Column(db.String(200), nullable=True)
+    module_type = db.Column(db.String(30), nullable=False, default="core")
+    credits = db.Column(db.Numeric(6, 2), nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    # Comma-separated module codes exactly as printed in the prospectus.
+    prerequisite_codes = db.Column(db.String(300), nullable=True)
+    # 'extracted' (from the document, untrusted) | 'manual' | 'csv'
+    origin = db.Column(db.String(20), nullable=False, default="manual")
+    source_reference = db.Column(db.String(200), nullable=True)
+    review_status = db.Column(db.String(20), nullable=False, default="needs_review", index=True)
+    live_module_id = db.Column(db.Integer, db.ForeignKey("modules.id"), nullable=True)
+    updated_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    version = db.relationship("CurriculumVersion", back_populates="entries")
+    programme = db.relationship("DraftProgramme", back_populates="entries")
+    live_module = db.relationship("Module")
+    updated_by = db.relationship("User", foreign_keys=[updated_by_id])
+
+    @property
+    def prerequisite_list(self):
+        return [code.strip().upper() for code in (self.prerequisite_codes or "").split(",") if code.strip()]
+
+    @property
+    def review_label(self):
+        return dict(ENTRY_REVIEW_STATUSES).get(self.review_status, self.review_status)
+
+
+class ModulePrerequisite(db.Model):
+    __tablename__ = "module_prerequisites"
+
+    id = db.Column(db.Integer, primary_key=True)
+    module_id = db.Column(db.Integer, db.ForeignKey("modules.id"), nullable=False, index=True)
+    prerequisite_module_id = db.Column(db.Integer, db.ForeignKey("modules.id"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+
+    module = db.relationship("Module", foreign_keys=[module_id], back_populates="prerequisite_links")
+    prerequisite = db.relationship("Module", foreign_keys=[prerequisite_module_id])
+
+    __table_args__ = (
+        db.UniqueConstraint("module_id", "prerequisite_module_id", name="uq_module_prerequisite"),
+        db.CheckConstraint("module_id <> prerequisite_module_id", name="ck_module_prerequisite_not_self"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Student academic context and external integrations
+# ---------------------------------------------------------------------------
+
+ACADEMIC_CONTEXT_SOURCES = {
+    "self_registration": "Self-registered at sign-up",
+    "internal_admin": "Set by a curriculum administrator",
+    "soma": "Synchronised from SOMA",
+}
+
+
+class StudentAcademicContext(db.Model):
+    """Provenance for a student's academic placement.
+
+    The placement itself stays on ``User`` (programme/level/semester/year) so
+    existing scoping keeps working; this row records who supplied it and when
+    it was last confirmed by an authoritative system.
+    """
+
+    __tablename__ = "student_academic_contexts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    source = db.Column(db.String(30), nullable=False, default="self_registration")
+    external_student_id = db.Column(db.String(80), nullable=True)
+    last_synced_at = db.Column(db.DateTime, nullable=True)
+    sync_status = db.Column(db.String(30), nullable=True)
+    sync_message = db.Column(db.String(500), nullable=True)
+    updated_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    student = db.relationship("User", foreign_keys=[student_id])
+    updated_by = db.relationship("User", foreign_keys=[updated_by_id])
+
+    @property
+    def source_label(self):
+        return ACADEMIC_CONTEXT_SOURCES.get(self.source, self.source)
+
+
+class StudentModuleRegistration(db.Model):
+    __tablename__ = "student_module_registrations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    module_id = db.Column(db.Integer, db.ForeignKey("modules.id"), nullable=False, index=True)
+    source = db.Column(db.String(30), nullable=False, default="internal_admin")
+    status = db.Column(db.String(20), nullable=False, default="registered")
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+
+    student = db.relationship("User", foreign_keys=[student_id])
+    module = db.relationship("Module")
+
+    __table_args__ = (
+        db.UniqueConstraint("student_id", "module_id", name="uq_student_module_registration"),
+    )
+
+
+class IntegrationSyncLog(db.Model):
+    __tablename__ = "integration_sync_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    provider = db.Column(db.String(30), nullable=False, index=True)
+    operation = db.Column(db.String(60), nullable=False)
+    status = db.Column(db.String(30), nullable=False, index=True)
+    student_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    message = db.Column(db.String(500), nullable=True)
+    triggered_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False, index=True)
+
+    student = db.relationship("User", foreign_keys=[student_id])
+    triggered_by = db.relationship("User", foreign_keys=[triggered_by_id])

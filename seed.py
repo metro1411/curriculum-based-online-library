@@ -185,6 +185,7 @@ def _get_or_create_module(semester, academic_year, name, description, order):
         name=name, code=None, description=description,
         module_type="general_studies" if name == "Technical Writing" else "core",
         publication_status="published", is_active=True, display_order=order,
+        provenance="legacy_seed",
     )
     db.session.add(mod)
     db.session.flush()

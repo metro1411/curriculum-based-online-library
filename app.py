@@ -187,6 +187,15 @@ def _apply_schema_migrations(app):
             "publication_status": "VARCHAR(20) NOT NULL DEFAULT 'published'",
             "created_by_id": "INTEGER",
             "updated_at": "TIMESTAMP",
+            "credits": "NUMERIC(6, 2)",
+            "curriculum_version_id": "INTEGER REFERENCES curriculum_versions(id)",
+            "provenance": "VARCHAR(30)",
+        },
+        "nta_levels": {
+            "year_label": "VARCHAR(40)",
+        },
+        "ai_messages": {
+            "context_label": "VARCHAR(30)",
         },
         "lecturer_assignments": {
             "status": "VARCHAR(20) NOT NULL DEFAULT 'approved'",
@@ -202,6 +211,8 @@ def _apply_schema_migrations(app):
         },
         "resources": {
             "topic_id": "INTEGER",
+            "learning_objectives": "TEXT",
+            "lecturer_remarks": "TEXT",
         },
         "learning_events": {
             "qualifies_for_streak": "BOOLEAN NOT NULL DEFAULT FALSE",
@@ -231,6 +242,20 @@ def _apply_schema_migrations(app):
             with db.engine.begin() as connection:
                 connection.execute(text(f"ALTER TABLE resources DROP COLUMN {legacy_column}"))
             app.logger.info("Removed legacy resources schema column during startup migration.")
+
+    # Record where pre-existing modules came from. Modules without a creator
+    # were shipped by the seed script and have not been checked against an
+    # official prospectus; modules with a creator were added by an HOD.
+    if "modules" in inspector.get_table_names():
+        with db.engine.begin() as connection:
+            connection.execute(text(
+                "UPDATE modules SET provenance = 'legacy_seed' "
+                "WHERE provenance IS NULL AND created_by_id IS NULL AND curriculum_version_id IS NULL"
+            ))
+            connection.execute(text(
+                "UPDATE modules SET provenance = 'hod_manual' "
+                "WHERE provenance IS NULL AND created_by_id IS NOT NULL AND curriculum_version_id IS NULL"
+            ))
 
     # Historical AI prompts must never remain available as lecturer analytics.
     if "learning_events" in inspector.get_table_names():
