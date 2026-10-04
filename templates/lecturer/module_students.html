@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+{% block title %}Students · {{ module.name }} | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ module.code or 'Code pending' }} · {{ module.semester.nta_level.programme.name }} · {{ module.semester.nta_level.label }} · {{ module.semester.label }}</span><h1>Students &amp; learning insights</h1><p>{{ 'Students registered for this module.' if basis == 'registration' else 'No registration records yet: showing students placed in this semester and academic year.' }} Individual AI questions stay private to each student.</p></div><a class="btn btn-ghost" href="{{ url_for('lecturer.module_content', module_id=module.id) }}">Back to module</a></div>
+
+  <section class="dashboard-stat-grid">
+    <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('users', size=18) }}</span><div><strong>{{ students|length }}</strong><span>Students</span></div></article>
+    <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('bar-chart', size=18) }}</span><div><strong>{{ insights.engagement_rate }}%</strong><span>Active in 30 days</span></div></article>
+    <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('help-circle', size=18) }}</span><div><strong>{{ insights.questions }}</strong><span>Questions to you</span></div></article>
+  </section>
+
+  <div class="dashboard-grid dashboard-grid--priority">
+    <section class="card card-pad">
+      <div class="section-header"><div><span class="section-kicker">Common questions</span><h2>What students ask about</h2></div></div>
+      {% for topic, count in insights.repeated_questions %}<div class="insight-list-item"><span class="rank">{{ count }}</span><div><strong>{{ topic }}</strong><small>Anonymous question{{ '' if count == 1 else 's' }}</small></div></div>{% else %}<p>No questions yet.</p>{% endfor %}
+    </section>
+    <section class="card card-pad">
+      <div class="section-header"><div><span class="section-kicker">Possible difficulty</span><h2>Least-studied topics</h2></div></div>
+      {% for row in insights.least_studied %}<div class="insight-list-item"><span class="rank">{{ row.actions }}</span><div><strong>{{ row.topic.title }}</strong><small>Study actions recorded</small></div></div>{% else %}<p>Add topics to see where students spend less time.</p>{% endfor %}
+      <p class="form-hint">Based on recorded study activity only; it is not a measure of grades or ability.</p>
+    </section>
+  </div>
+
+  <section class="card card-pad mt-6">
+    <div class="section-header"><div><span class="section-kicker">Class list</span><h2>Students</h2></div></div>
+    <div class="responsive-table"><table class="data-table"><thead><tr><th>Name</th><th>Registration number</th></tr></thead><tbody>
+    {% for student in students %}<tr><td>{{ student.full_name }}</td><td>{{ student.registration_number or '—' }}</td></tr>{% else %}<tr><td colspan="2">No students yet.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</div>
+{% endblock %}

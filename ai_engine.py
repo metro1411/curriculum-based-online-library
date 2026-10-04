@@ -95,37 +95,80 @@ def _tokenize(text):
     return tokens
 
 
-def retrieve_context(module=None, query="", resource=None, extra_resources=None, top_k=4):
-    """Search ResourceChunk rows for chunks relevant to `query`.
+def retrieve_context(module=None, query="", resource=None, extra_resources=None, top_k=4, context=None):
+    """Search lecturer resources, structured curriculum and published prospectus text.
 
-    Search scope, in order of preference:
+    Lecturer-resource search scope, in order of preference (see
+    curriculum_context.py for the full retrieval priority):
       - `resource` (a specific Resource, for "Ask About This Resource" mode)
       - all resources belonging to `module`
-      - `extra_resources` (optional additional pool, e.g. sibling modules)
+      - `extra_resources` and resources of the student's other current
+        modules (from `context`), weighted slightly lower
 
-    Returns a dict: {'chunks': [{'resource', 'chunk', 'score'}...], 'has_good_match': bool}
+    Returns a dict: {'chunks': [{'resource', 'chunk', 'score'}...],
+    'has_good_match': bool, 'curriculum_matches': [...],
+    'prospectus_matches': [...], 'retrieval_error': bool}
     """
+    try:
+        result = _retrieve_resources(module, query, resource, extra_resources, top_k, context)
+        if context is not None:
+            import curriculum_context
+            tokens = _tokenize(query)
+            result["curriculum_matches"] = curriculum_context.retrieve_curriculum(tokens, context, _tokenize)
+            result["prospectus_matches"] = curriculum_context.retrieve_prospectus(tokens, context, _tokenize)
+        return result
+    except Exception:
+        # A retrieval fault must never break the chat; answer as general
+        # guidance and let the label say so.
+        logger.exception("Curriculum retrieval failed")
+        return {"chunks": [], "has_good_match": False, "curriculum_matches": [],
+                "prospectus_matches": [], "retrieval_error": True}
+
+
+def _resource_metadata_text(r):
+    topic_title = r.topic.title if getattr(r, "topic", None) is not None else ""
+    return " ".join(part for part in (
+        r.title, r.description or "", getattr(r, "learning_objectives", None) or "", topic_title,
+    ) if part)
+
+
+def _retrieve_resources(module, query, resource, extra_resources, top_k, context):
+    empty = {"chunks": [], "has_good_match": False, "curriculum_matches": [],
+             "prospectus_matches": [], "retrieval_error": False}
     query_tokens = _tokenize(query)
     query_token_set = set(query_tokens)
 
     candidates = []
-    if resource is not None and resource.is_verified:
-        candidates.append(resource)
+    weights = {}
+
+    def add(r, weight):
+        if r is not None and r.is_verified and r not in candidates:
+            candidates.append(r)
+            weights[r.id] = weight
+
+    if resource is not None:
+        add(resource, 1.0)
     if module is not None:
         for r in module.resources:
-            if r.is_verified and r not in candidates:
-                candidates.append(r)
-    if extra_resources:
-        for r in extra_resources:
-            if r.is_verified and r not in candidates:
-                candidates.append(r)
+            add(r, 1.0)
+    for r in extra_resources or []:
+        add(r, 0.85)
+    if context is not None:
+        # Priority 4: the student's other current modules. Without a selected
+        # module they are the natural scope, so they are not down-weighted.
+        secondary_weight = 0.85 if module is not None else 1.0
+        for other in context.modules:
+            if module is not None and other.id == module.id:
+                continue
+            for r in other.resources:
+                add(r, secondary_weight)
 
     if not query_tokens or not candidates:
-        return {"chunks": [], "has_good_match": False}
+        return dict(empty)
 
     all_pairs = [(r, c) for r in candidates for c in r.chunks]
     if not all_pairs:
-        return {"chunks": [], "has_good_match": False}
+        return dict(empty)
 
     # Document-frequency table across the candidate chunk pool, for a
     # simple inverse-document-frequency weighting.
@@ -138,6 +181,7 @@ def retrieve_context(module=None, query="", resource=None, extra_resources=None,
             doc_freq[t] += 1
     n_docs = len(all_pairs)
 
+    metadata_tokens = {r.id: set(_tokenize(_resource_metadata_text(r))) for r in candidates}
     scored = []
     for (r, c), toks in zip(all_pairs, token_sets):
         score = 0.0
@@ -149,10 +193,10 @@ def retrieve_context(module=None, query="", resource=None, extra_resources=None,
                 matched_terms += 1
         if score <= 0:
             continue
-        # A clear match in a lecturer resource title or description is a
-        # particularly useful signal in a short academic corpus.
-        resource_tokens = set(_tokenize(f"{r.title} {r.description or ''}"))
-        title_matches = len(query_token_set & resource_tokens)
+        # A clear match in a lecturer resource title, description, learning
+        # objectives or topic is a particularly useful signal in a short
+        # academic corpus.
+        title_matches = len(query_token_set & metadata_tokens[r.id])
         score += title_matches * 1.25
         if title_matches:
             matched_terms += title_matches
@@ -160,6 +204,7 @@ def retrieve_context(module=None, query="", resource=None, extra_resources=None,
             score *= 1.5
         if r.is_verified:
             score *= 1.15
+        score *= weights.get(r.id, 1.0)
         scored.append((score, matched_terms, r, c))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -172,7 +217,7 @@ def retrieve_context(module=None, query="", resource=None, extra_resources=None,
     top = [(s, r, c) for s, _terms, r, c in top]
 
     chunks_out = [{"resource": r, "chunk": c, "score": round(s, 2)} for s, r, c in top]
-    return {"chunks": chunks_out, "has_good_match": has_good_match}
+    return {**empty, "chunks": chunks_out, "has_good_match": has_good_match}
 
 
 def unique_sources(chunks_out, limit=3):
@@ -233,6 +278,12 @@ explain the important sections and expected output.
 
 Never claim to represent official DIT policy, official curriculum, or official approval \
 unless that is explicitly present in the retrieved context.
+
+Respect the CURRICULUM SCOPE line in each request. Retrieval priority is: lecturer-approved DIT \
+resources, then structured DIT curriculum records, then published DIT prospectus text, then other \
+approved material, then general knowledge. When the scope is general or outside the curriculum, \
+still help the student, but never present the topic as part of their official DIT curriculum. \
+The application shows the scope label beside your answer, so do not invent a different label.
 
 Format your answers using polished Markdown (headings, bold text, numbered or bulleted lists,
 tables and fenced code blocks) so they are easy to scan in a chat interface. Start directly
@@ -354,8 +405,18 @@ def _resolve_chain(student=None, module=None):
     }
 
 
-def _build_context_block(student, module, resource, retrieved):
-    chain = _resolve_chain(student=student, module=module)
+def _build_context_block(student, module, resource, retrieved, context=None, scope=None):
+    import curriculum_context
+
+    if context is not None:
+        chain = {
+            "department": context.department or "Not specified",
+            "programme": context.programme or "Not specified",
+            "level": context.level or "Not specified",
+            "semester": context.semester or "Not specified",
+        }
+    else:
+        chain = _resolve_chain(student=student, module=module)
     lines = [
         "STUDENT ACADEMIC CONTEXT:",
         f"- Department: {chain['department']}",
@@ -364,46 +425,69 @@ def _build_context_block(student, module, resource, retrieved):
         f"- Semester: {chain['semester']}",
         f"- Module: {module.name if module else 'General study help (no specific module selected)'}",
     ]
+    if context is not None:
+        if context.academic_year:
+            lines.append(f"- Academic year: {context.academic_year}")
+        if context.modules:
+            label = "Registered modules" if context.modules_from_registration else "Current semester modules"
+            lines.append(f"- {label}: " + "; ".join(
+                f"{m.name}" + (f" ({m.code})" if m.code else "") for m in context.modules[:12]))
+        if context.missing:
+            lines.append("- Missing student context: " + ", ".join(context.missing)
+                         + " (do not guess these details).")
     if resource is not None:
         lines.append(f"- Resource in focus: \"{resource.title}\" ({resource.type_label})")
 
     if module is not None:
-        # Topics and learning outcomes are lecturer-managed curriculum context,
-        # so the assistant sees the module's intended scope even before a
-        # matching resource chunk is retrieved.
-        from models import Topic
-        topics = Topic.query.filter_by(
-            module_id=module.id, is_published=True
-        ).order_by(Topic.display_order, Topic.id).all()
-        if topics:
-            lines.append("- Lecturer curriculum topics and outcomes:")
-            for topic in topics:
-                outcome = f" — {topic.learning_outcome}" if topic.learning_outcome else ""
-                lines.append(f"  - {topic.title}{outcome}")
+        # Structured curriculum data (priority 2) for the selected module:
+        # placement, credits, prerequisites, topics and learning outcomes.
+        lines.append("")
+        lines.append("STRUCTURED DIT CURRICULUM RECORD FOR THE SELECTED MODULE:")
+        lines.append(curriculum_context.module_profile_text(module))
 
     lines.append("")
     chunks = retrieved.get("chunks") or []
     if chunks:
-        lines.append("RETRIEVED ARCHIVE CONTEXT (use this as your primary source of truth):")
+        lines.append("RETRIEVED LECTURER-APPROVED CONTEXT (priority 1 - use as your primary source of truth):")
         for i, item in enumerate(chunks, start=1):
             r = item["resource"]
             tag = "DIT Verified" if r.is_verified else "Pending Review"
-            lines.append(f"[{i}] Source: \"{r.title}\" ({r.type_label} - {tag})")
+            lines.append(f"[{i}] Source: \"{r.title}\" ({r.type_label} - {tag} - module: {r.module.name})")
+            if getattr(r, "learning_objectives", None):
+                lines.append(f"Learning objectives: {r.learning_objectives.strip()}")
             lines.append(item["chunk"].content.strip())
             lines.append("")
     else:
         lines.append(
-            "RETRIEVED ARCHIVE CONTEXT: No directly relevant material was found in the "
-            "archive for this query. Answer using general academic knowledge and clearly "
-            "label it as general guidance, not DIT-specific content."
+            "RETRIEVED ARCHIVE CONTEXT: No directly relevant lecturer material was found for this query."
         )
 
+    other_modules = [m for m in (retrieved.get("curriculum_matches") or [])
+                     if module is None or m["module"].id != module.id]
+    if other_modules:
+        lines.append("")
+        lines.append("RELATED STRUCTURED CURRICULUM RECORDS (priority 2):")
+        for item in other_modules:
+            lines.append(item["text"])
+            lines.append("")
+    prospectus = retrieved.get("prospectus_matches") or []
+    if prospectus:
+        lines.append("")
+        lines.append("PUBLISHED DIT PROSPECTUS EXCERPTS (priority 3 - official document text):")
+        for i, item in enumerate(prospectus, start=1):
+            lines.append(f"[P{i}] {item['title']}: {item['text'].strip()}")
+
+    if scope:
+        lines.append("")
+        lines.append(f"CURRICULUM SCOPE: {scope} - {curriculum_context.CONTEXT_LABELS[scope]}")
+        lines.append(curriculum_context.PROMPT_GUIDANCE[scope])
     return "\n".join(lines)
 
 
-def _build_current_turn(mode, student, module, resource, retrieved, question, response_style="guided"):
+def _build_current_turn(mode, student, module, resource, retrieved, question, response_style="guided",
+                        context=None, scope=None):
     instruction = MODE_INSTRUCTIONS.get(mode, MODE_INSTRUCTIONS[DEFAULT_MODE])
-    context_block = _build_context_block(student, module, resource, retrieved)
+    context_block = _build_context_block(student, module, resource, retrieved, context=context, scope=scope)
     return (
         f"MODE: {MODE_LABELS.get(mode, mode)}\n"
         f"RESPONSE PREFERENCE: {STYLE_INSTRUCTIONS.get(response_style, STYLE_INSTRUCTIONS['guided'])}\n"
@@ -824,10 +908,14 @@ def ask(*, mode, question, module=None, resource=None, history=None, student=Non
             "general_guidance": True, "web_grounded": False,
         }
 
+    import curriculum_context
+
     mode = mode if mode in MODE_INSTRUCTIONS else DEFAULT_MODE
+    context = curriculum_context.build_context(student=student, module=module)
     retrieved = retrieve_context(module=module, query=question, resource=resource,
-                                  extra_resources=extra_resources)
-    general_guidance = not retrieved["has_good_match"]
+                                  extra_resources=extra_resources, context=context)
+    scope = curriculum_context.classify(_tokenize(question), context, retrieved, _tokenize)
+    general_guidance = scope != "lecturer_content"
     sources = [] if general_guidance else unique_sources(retrieved["chunks"])
 
     client = _get_client()
@@ -840,7 +928,8 @@ def ask(*, mode, question, module=None, resource=None, history=None, student=Non
         }
 
     current_turn_text = _build_current_turn(
-        mode, student, module, resource, retrieved, question, response_style=response_style
+        mode, student, module, resource, retrieved, question, response_style=response_style,
+        context=context, scope=scope,
     )
 
     contents = []
@@ -921,6 +1010,17 @@ def ask(*, mode, question, module=None, resource=None, history=None, student=Non
         "general_guidance": general_guidance,
         "web_grounded": bool(web_sources),
         "followups": suggested_followups(question, mode, module),
+        "context_label": scope,
+        "context_label_text": curriculum_context.CONTEXT_LABELS[scope],
+        "curriculum_context": context.summary(),
+        "curriculum_sources": [
+            {"module_id": item["module"].id, "name": item["module"].name, "code": item["module"].code}
+            for item in retrieved.get("curriculum_matches") or []
+        ],
+        "prospectus_sources": [
+            {"title": item["title"]} for item in retrieved.get("prospectus_matches") or []
+        ],
+        "retrieval_error": retrieved.get("retrieval_error", False),
     }
 
 

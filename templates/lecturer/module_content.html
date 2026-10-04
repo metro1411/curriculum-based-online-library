@@ -13,6 +13,7 @@
       <p>{{ module.academic_year.label if module.academic_year else 'Legacy curriculum' }} · {{ module.semester.nta_level.label }} · {{ module.semester.label }}</p>
     </div>
     <div class="hero-actions">
+      <a class="btn btn-secondary" href="{{ url_for('lecturer.module_students', module_id=module.id) }}">{{ icons.icon('users', size=16) }} Students &amp; insights</a>
       <a class="btn btn-secondary" href="{{ url_for('lecturer.questions', module_id=module.id) }}">{{ icons.icon('help-circle', size=16) }} Questions</a>
       <a class="btn btn-secondary" href="{{ url_for('lecturer.dashboard') }}">{{ icons.icon('arrow-left', size=16) }} Dashboard</a>
     </div>

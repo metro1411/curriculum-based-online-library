@@ -73,12 +73,16 @@
           <td>
             <div class="row-actions">
               <a class="btn btn-ghost btn-sm btn-icon" href="{{ url_for('student.resource_view', resource_id=r.id) }}" title="View" aria-label="View">{{ icons.icon('eye', size=15) }}</a>
+              {% if r.uploaded_by_id == current_user.id %}
               <a class="btn btn-ghost btn-sm btn-icon" href="{{ url_for('lecturer.edit_resource', resource_id=r.id) }}" title="Edit" aria-label="Edit">{{ icons.icon('edit', size=15) }}</a>
               <form method="POST" action="{{ url_for('lecturer.delete_resource', resource_id=r.id) }}"
                     data-confirm="This will permanently delete &quot;{{ r.title }}&quot; and its file." data-confirm-title="Delete resource?">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-ghost-danger btn-sm btn-icon" title="Delete" aria-label="Delete">{{ icons.icon('trash', size=15) }}</button>
               </form>
+              {% else %}
+              <span class="text-muted text-small" title="Only the uploading lecturer can change this resource">By {{ r.uploaded_by.full_name if r.uploaded_by else 'another lecturer' }}</span>
+              {% endif %}
             </div>
           </td>
         </tr>

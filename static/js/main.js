@@ -562,10 +562,10 @@
       turn.innerHTML = '<div class="chat-avatar chat-avatar--user">You</div><div class="chat-bubble chat-bubble--user"><p class="mb-0">' + escapeHtml(message).replace(/\n/g, "<br>") + "</p></div>";
       chat.appendChild(turn); scrollToBottom();
     }
-    function createAssistantTurn(html, messageId, sources, webSources, generalGuidance) {
+    function createAssistantTurn(html, messageId, sources, webSources, generalGuidance, context) {
       var turn = document.createElement("div"); turn.className = "chat-turn chat-turn--assistant"; turn.dataset.assistantTurn = ""; turn.dataset.messageId = messageId || "";
       turn.innerHTML = '<div class="chat-avatar chat-avatar--assistant">✦</div><div class="chat-turn__body"><div class="chat-bubble chat-bubble--assistant">' + html + '</div>' + actionControls() + feedbackControls(messageId || "") + '</div>';
-      appendMeta(turn.querySelector(".chat-turn__body"), sources, webSources, generalGuidance);
+      appendMeta(turn.querySelector(".chat-turn__body"), sources, webSources, generalGuidance, context);
       chat.appendChild(turn); decorateCodeBlocks(turn); scrollToBottom(); return turn;
     }
     function createSourceCard(source, isWeb) {
@@ -589,10 +589,18 @@
       link.appendChild(copy);
       return link;
     }
-    function appendMeta(body, sources, webSources, generalGuidance) {
+    function appendMeta(body, sources, webSources, generalGuidance, context) {
       sources = Array.isArray(sources) ? sources : [];
       webSources = Array.isArray(webSources) ? webSources : [];
-      if (generalGuidance) {
+      var label = context && context.label;
+      if (label && context.text) {
+        var badge = document.createElement("div");
+        badge.className = "context-label context-label--" + label.replace(/[^a-z_]/g, "");
+        badge.dataset.contextLabel = "";
+        badge.textContent = context.text;
+        body.appendChild(badge);
+      }
+      if (generalGuidance && label !== "outside_curriculum") {
         var notice = document.createElement("div"); notice.className = "general-guidance-note";
         notice.innerHTML = "<strong>General guidance</strong><span>No directly relevant approved lecturer resource was found for this question. This answer uses general academic knowledge" + ((webSources && webSources.length) ? " supported by supplementary web research" : "") + "; confirm critical course details with your lecturer.</span>";
         body.appendChild(notice);
@@ -634,7 +642,7 @@
           typing.remove();
           if (!result.ok) { createAssistantTurn("<p>" + escapeHtml(result.data.error || "I could not complete that response.") + "</p>", "", [], [], false); return; }
           var wasNew = !state.conversationId; state.conversationId = result.data.conversation_id;
-          createAssistantTurn(result.data.answer_html, result.data.message_id, result.data.sources, result.data.web_sources, result.data.general_guidance);
+          createAssistantTurn(result.data.answer_html, result.data.message_id, result.data.sources, result.data.web_sources, result.data.general_guidance, { label: result.data.context_label, text: result.data.context_label_text });
           setFollowups(result.data.followups);
           if (wasNew) { addConversation(state.conversationId, result.data.conversation_title); if (title) title.textContent = result.data.conversation_title; }
         })
@@ -686,7 +694,7 @@
           typing.remove(); if (!result.ok) { window.showToast(result.data.error || "Unable to regenerate the answer.", "error"); return; }
           var body = turn.querySelector(".chat-turn__body"); body.querySelector(".chat-bubble--assistant").innerHTML = result.data.answer_html;
           turn.dataset.messageId = result.data.message_id; body.querySelector(".ai-feedback").outerHTML = feedbackControls(result.data.message_id);
-          body.querySelectorAll(".chat-sources, .general-guidance-note").forEach(function (node) { node.remove(); }); appendMeta(body, result.data.sources, result.data.web_sources, result.data.general_guidance); decorateCodeBlocks(turn); setFollowups(result.data.followups); scrollToBottom();
+          body.querySelectorAll(".chat-sources, .general-guidance-note, [data-context-label]").forEach(function (node) { node.remove(); }); appendMeta(body, result.data.sources, result.data.web_sources, result.data.general_guidance, { label: result.data.context_label, text: result.data.context_label_text }); decorateCodeBlocks(turn); setFollowups(result.data.followups); scrollToBottom();
         })
         .catch(function (error) { typing.remove(); window.showToast(error.message, "error"); })
         .finally(function () { setGenerating(false); });

@@ -77,6 +77,12 @@
         {% for key, label in modes.items() if key != 'ask_resource' or selected_resource %}<button type="button" class="mode-pill {{ 'active' if key == selected_mode }}" data-mode-pill="{{ key }}">{{ label }}</button>{% endfor %}
       </div>
 
+      <div class="ai-curriculum-strip" aria-label="Curriculum context used by DIT AI">
+        {{ icons.icon('layers', size=14) }}
+        {% if curriculum.programme %}<span><strong>{{ curriculum.programme }}</strong> · {{ curriculum.level or 'Level not set' }} · {{ curriculum.semester or 'Semester not set' }}{% if curriculum.academic_year %} · {{ curriculum.academic_year }}{% endif %}</span>{% else %}<span>Your programme and semester are not set yet, so answers cannot be matched to your DIT curriculum.</span>{% endif %}
+        <span class="ai-curriculum-strip__modules">{{ curriculum.modules|length }} {{ 'registered' if curriculum.modules_from_registration else 'current' }} module{{ '' if curriculum.modules|length == 1 else 's' }}</span>
+      </div>
+
       {% if ai_available %}
       <div class="chat-window" data-chat-window aria-live="polite">
         {% if not chat_messages %}
@@ -96,7 +102,7 @@
           {% if msg.role == 'user' %}
           <div class="chat-turn chat-turn--user"><div class="chat-avatar chat-avatar--user">{{ current_user.full_name[:1]|upper }}</div><div class="chat-bubble chat-bubble--user"><p class="mb-0">{{ msg.content }}</p></div></div>
           {% else %}
-          <div class="chat-turn chat-turn--assistant" data-assistant-turn data-message-id="{{ msg.id }}"><div class="chat-avatar chat-avatar--assistant">{{ icons.icon('sparkles', size=16) }}</div><div class="chat-turn__body"><div class="chat-bubble chat-bubble--assistant">{{ msg.content_html|safe }}</div><div class="chat-message-actions"><button type="button" data-copy-answer title="Copy response">Copy</button><button type="button" data-regenerate title="Regenerate response">{{ icons.icon('refresh', size=13) }} Regenerate</button></div>{{ answer_feedback(msg.id) }}{% if msg.general_guidance %}<div class="general-guidance-note"><strong>General guidance</strong><span>No directly relevant approved lecturer resource was found for this question. This answer uses general academic knowledge{% if msg.web_sources %} supported by supplementary web research{% endif %}; confirm critical course details with your lecturer.</span></div>{% endif %}{% if msg.sources %}<div class="chat-sources"><span>{{ icons.icon('shield-check', size=13) }} Verified lecturer resources used</span>{% for s in msg.sources %}{{ source_card(s, url_for('student.resource_view', resource_id=s.id)) }}{% endfor %}</div>{% endif %}{% if msg.web_sources %}<div class="chat-sources chat-sources--web"><span>{{ icons.icon('external-link', size=13) }} Supplementary web sources</span>{% for s in msg.web_sources %}{{ source_card(s, s.url, true) }}{% endfor %}</div>{% endif %}</div></div>
+          <div class="chat-turn chat-turn--assistant" data-assistant-turn data-message-id="{{ msg.id }}"><div class="chat-avatar chat-avatar--assistant">{{ icons.icon('sparkles', size=16) }}</div><div class="chat-turn__body"><div class="chat-bubble chat-bubble--assistant">{{ msg.content_html|safe }}</div><div class="chat-message-actions"><button type="button" data-copy-answer title="Copy response">Copy</button><button type="button" data-regenerate title="Regenerate response">{{ icons.icon('refresh', size=13) }} Regenerate</button></div>{{ answer_feedback(msg.id) }}{% if msg.context_label %}<div class="context-label context-label--{{ msg.context_label }}" data-context-label>{{ msg.context_label_text }}</div>{% endif %}{% if msg.general_guidance and msg.context_label != 'outside_curriculum' %}<div class="general-guidance-note"><strong>General guidance</strong><span>No directly relevant approved lecturer resource was found for this question. This answer uses general academic knowledge{% if msg.web_sources %} supported by supplementary web research{% endif %}; confirm critical course details with your lecturer.</span></div>{% endif %}{% if msg.sources %}<div class="chat-sources"><span>{{ icons.icon('shield-check', size=13) }} Verified lecturer resources used</span>{% for s in msg.sources %}{{ source_card(s, url_for('student.resource_view', resource_id=s.id)) }}{% endfor %}</div>{% endif %}{% if msg.web_sources %}<div class="chat-sources chat-sources--web"><span>{{ icons.icon('external-link', size=13) }} Supplementary web sources</span>{% for s in msg.web_sources %}{{ source_card(s, s.url, true) }}{% endfor %}</div>{% endif %}</div></div>
           {% endif %}
         {% endfor %}
       </div>
@@ -106,7 +112,7 @@
         <textarea class="form-textarea" data-chat-input rows="1" placeholder="Message DIT AI…" required></textarea>
         <div class="chat-composer__footer"><span>Enter to send · Shift + Enter for a new line</span><button type="submit" class="btn btn-primary btn-icon" data-chat-send aria-label="Send message">{{ icons.icon('send', size=18) }}</button></div>
       </form>
-      <p class="ai-disclosure">DIT AI uses the selected module and lecturer materials first. Review important academic work with your lecturer.</p>
+      <p class="ai-disclosure">DIT AI uses lecturer materials first, then your DIT curriculum records and the published prospectus, then general knowledge. Each answer is labelled with where it comes from. Review important academic work with your lecturer.</p>
       {% else %}
       <div class="card ai-disabled-panel"><span class="ai-empty-state__mark">{{ icons.icon('sparkles', size=26) }}</span><h2>AI learning assistant</h2><p>Your guided, module-aware learning space.</p><p><strong>AI assistance will be available when the AI service is connected.</strong></p><p class="text-muted text-small">Add a <code>GEMINI_API_KEY</code> to the application environment and restart the app to activate chat.</p></div>
       {% endif %}

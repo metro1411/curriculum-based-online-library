@@ -46,6 +46,15 @@ def registered_modules(student):
     return [row.module for row in rows]
 
 
+def is_registered(student, module):
+    """True when an explicit registration grants access to a published module."""
+    if not student or module is None or not module.is_published:
+        return False
+    return StudentModuleRegistration.query.filter_by(
+        student_id=student.id, module_id=module.id, status="registered"
+    ).first() is not None
+
+
 def current_modules(student):
     """Registered modules when known, otherwise the student's semester modules."""
     registered = registered_modules(student)

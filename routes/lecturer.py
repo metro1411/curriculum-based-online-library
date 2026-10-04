@@ -36,6 +36,8 @@ from utils import (
     safe_resource_mime_type,
 )
 from file_processing import process_resource_text
+from permissions import can_edit_resource, can_view_module_students
+import academic_context
 from storage_backend import StorageError, delete_resource_file, stage_uploaded_file
 
 lecturer_bp = Blueprint("lecturer", __name__, url_prefix="/lecturer")
@@ -363,6 +365,8 @@ def _read_resource_form(module_id):
     return {
         "title": title,
         "description": (request.form.get("description") or "").strip(),
+        "learning_objectives": (request.form.get("learning_objectives") or "").strip()[:4000] or None,
+        "lecturer_remarks": (request.form.get("lecturer_remarks") or "").strip()[:4000] or None,
         # None means "not a recognised type"; callers choose the fallback.
         "resource_type": resource_type if resource_type in RESOURCE_TYPE_KEYS else None,
         "topic": topic,
@@ -408,7 +412,9 @@ def _index_resource_text(resource, staged=None):
         chunks, resource.text_extraction_status = process_resource_text(staged.path, staged.ext)
     else:
         resource.text_extraction_status = "not_applicable"
-        chunks = [f"{resource.title}. {resource.description or ''}".strip()] if resource.external_url else []
+        chunks = [" ".join(part for part in (
+            f"{resource.title}.", resource.description or "", resource.learning_objectives or "",
+        ) if part).strip()] if resource.external_url else []
     for index, chunk in enumerate(chunks):
         db.session.add(ResourceChunk(resource_id=resource.id, chunk_index=index, content=chunk))
 
@@ -434,6 +440,8 @@ def _handle_upload_post(module):
             topic_id=form["topic"].id if form["topic"] else None,
             title=form["title"],
             description=form["description"],
+            learning_objectives=form["learning_objectives"],
+            lecturer_remarks=form["lecturer_remarks"],
             resource_type=form["resource_type"] or "other",
             stored_filename=staged.stored_filename if staged else None,
             original_filename=staged.original_filename if staged else None,
@@ -449,8 +457,21 @@ def _handle_upload_post(module):
             "resource.created", "Resource", target_id=resource.id,
             target_label=resource.title,
             department_id=module.semester.nta_level.programme.department_id,
-            details={"module_id": module.id, "resource_type": resource.resource_type},
+            details={
+                "module_id": module.id, "module_code": module.code,
+                "programme": module.semester.nta_level.programme.name,
+                "nta_level": module.semester.nta_level.level_number,
+                "semester": module.semester.semester_number,
+                "resource_type": resource.resource_type,
+                "topic_id": resource.topic_id,
+                "verified": resource.is_verified,
+            },
         )
+        if resource.is_verified:
+            record_audit(
+                "resource.approved", "Resource", target_id=resource.id, target_label=resource.title,
+                department_id=module.semester.nta_level.programme.department_id,
+            )
         _index_resource_text(resource, staged)
         db.session.commit()
     except Exception:
@@ -719,7 +740,7 @@ def manage_resources():
 @lecturer_bp.route("/resources/<int:resource_id>/edit", methods=["GET", "POST"])
 def edit_resource(resource_id):
     resource = db.get_or_404(Resource, resource_id)
-    if not _assigned_module(resource.module_id):
+    if not can_edit_resource(current_user, resource):
         abort(403)
 
     if request.method == "POST":
@@ -749,8 +770,11 @@ def _handle_edit_post(resource):
 
     replaced_filename = None
     try:
+        was_verified = resource.is_verified
         resource.title = form["title"]
         resource.description = form["description"]
+        resource.learning_objectives = form["learning_objectives"]
+        resource.lecturer_remarks = form["lecturer_remarks"]
         resource.topic_id = form["topic"].id if form["topic"] else None
         resource.resource_type = form["resource_type"] or resource.resource_type
         resource.verification_status = "verified" if form["verified"] else "pending"
@@ -771,6 +795,15 @@ def _handle_edit_post(resource):
             department_id=resource.module.semester.nta_level.programme.department_id,
             details={"resource_type": resource.resource_type, "topic_id": resource.topic_id},
         )
+        if resource.is_verified and not was_verified:
+            record_audit(
+                "resource.approved", "Resource", target_id=resource.id, target_label=resource.title,
+                department_id=resource.module.semester.nta_level.programme.department_id,
+            )
+        if staged is None:
+            # Metadata feeds retrieval; refresh link-only resources' index text.
+            if resource.external_url and not resource.stored_filename:
+                _index_resource_text(resource)
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -789,7 +822,7 @@ def _handle_edit_post(resource):
 @lecturer_bp.route("/resources/<int:resource_id>/delete", methods=["POST"])
 def delete_resource(resource_id):
     resource = db.get_or_404(Resource, resource_id)
-    if not _assigned_module(resource.module_id):
+    if not can_edit_resource(current_user, resource):
         abort(403)
 
     title = resource.title
@@ -886,3 +919,36 @@ def respond_to_question(question_id):
     db.session.commit()
     flash(f"{question.anonymous_ref} updated without revealing the student’s identity.", "success")
     return redirect(url_for("lecturer.questions", module_id=question.module_id))
+
+
+# ---------------------------------------------------------------------------
+# Registered students for a taught module
+# ---------------------------------------------------------------------------
+
+@lecturer_bp.route("/module/<int:module_id>/students")
+def module_students(module_id):
+    module = get_module_or_404(module_id)
+    if not can_view_module_students(current_user, module):
+        abort(403)
+    from models import StudentModuleRegistration
+    registrations = (StudentModuleRegistration.query
+                     .filter_by(module_id=module.id, status="registered")
+                     .join(User, StudentModuleRegistration.student_id == User.id)
+                     .filter(User.is_active_account.is_(True))
+                     .order_by(User.full_name).all())
+    if registrations:
+        students = [row.student for row in registrations]
+        basis = "registration"
+    else:
+        # Without registration records, the class is everyone placed in the
+        # module's semester and academic year.
+        query = User.query.filter_by(role="student", semester_id=module.semester_id, is_active_account=True)
+        if module.academic_year_id:
+            query = query.filter(db.or_(User.academic_year_id == module.academic_year_id,
+                                        User.academic_year_id.is_(None)))
+        students = query.order_by(User.full_name).all()
+        basis = "semester"
+    return render_template(
+        "lecturer/module_students.html", module=module, students=students, basis=basis,
+        insights=lecturer_insights(module, lecturer_id=current_user.id, days=30),
+    )

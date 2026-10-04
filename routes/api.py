@@ -239,5 +239,10 @@ def ai_ask():
         ok=True,
         answer_text=result["answer_text"],
         general_guidance=result["general_guidance"],
+        context_label=result.get("context_label"),
+        context_label_text=result.get("context_label_text"),
+        curriculum_context=result.get("curriculum_context"),
+        curriculum_sources=result.get("curriculum_sources", []),
+        prospectus_sources=result.get("prospectus_sources", []),
         sources=[{"id": r.id, "title": r.title, "type": r.type_label} for r in result["sources"]],
     )
