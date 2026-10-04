@@ -250,7 +250,8 @@ def test_text_extraction_reads_structure(app, hod):
     candidates = svc.extract_candidates(text)
     assert [c["module_code"] for c in candidates] == ["DMO 06101", "DMO 06102", "DMO 06201"]
     assert candidates[0]["department"] == "Demo Studies"
-    assert candidates[0]["programme"] == "Ordinary Diploma in DEMO Technology"
+    assert candidates[0]["programme"] == "DEMO Technology"
+    assert candidates[0]["year_label"] == "Ordinary Diploma"
     assert (candidates[0]["nta_level"], candidates[0]["semester"]) == (6, 1)
     assert candidates[2]["semester"] == 2 and candidates[2]["credits"] == "9.5"
     assert candidates[1]["credits"] is None
@@ -260,6 +261,86 @@ def test_text_extraction_reads_structure(app, hod):
         version = _version(app, title)
         assert len(version.entries) == 3 and {e.origin for e in version.entries} == {"extracted"}
         assert ProspectusChunk.query.filter_by(document_id=version.prospectus_document_id).count() >= 1
+
+
+# DEMO text laid out the way the DIT prospectus prints its programme tables.
+DIT_LAYOUT = """\
+6.9 DEPARTMENT OF DEMO ENGINEERING
+6.9.1 Programmes offered by the Department of DEMO Engineering
+(a) BASIC TECHNICIAN CERTIFICATE (BTC) IN DEMO ENGINEERING (NTA
+LEVEL 4)
+Semester I
+Module
+Code Module Title Credit
+FUNDAMENTAL MODULE
+GST 04111 DEMO Algebra 6
+DIT Prospectus Academic Year 2025/2026
+76 | P a g e
+CORE MODULES
+DMO04112 DEMO Workshop Practice and
+Safety
+9
+GST 04111 DEMO Algebra 6
+Total 15
+SEMISTER II
+DMO 04211 DEMO Surveying 12
+(b). HIGHER DIPLOMA IN DEMO ENGINEERING - NTA LEVEL 7 [OLD
+Semester IV Modules
+S/N Module Name Class Credits
+1. DMU 07411 DEMO Structures Core 9
+2. DMU 07412 DEMO Communication Fundamental 6
+(c). GENERAL COURSE PROGRAMME IN DEMO ENGINEERING
+Semester I
+DMG 4101 DEMO Bridging Module 9
+8.9 DEMO CAMPUS
+(a) ORDINARY DIPLOMA IN DEMO ENGINEERING (NTA 6)
+SEMESTER I
+SLT P 06101 DEMO Electromagnetism 2
+6.9.2 List of Academic Staff in the Department of DEMO Engineering
+TZS 15000 DEMO fee line 5
+"""
+
+
+def test_reader_follows_the_dit_prospectus_layout():
+    rows, notes = svc.extract_prospectus(DIT_LAYOUT)
+    by_code = {row["module_code"]: row for row in rows}
+    assert list(by_code) == ["GST 04111", "DMO 04112", "DMO 04211", "DMU 07411", "DMU 07412", "SLTP 06101"]
+    first = by_code["GST 04111"]
+    assert (first["department"], first["programme"], first["nta_level"], first["semester"]) == \
+        ("Demo Engineering", "Demo Engineering", 4, 1)
+    assert first["year_label"] == "Basic Technician Certificate" and first["module_type"] == "fundamental"
+    workshop = by_code["DMO 04112"]
+    assert workshop["module_name"] == "DEMO Workshop Practice and Safety" and workshop["credits"] == "9"
+    assert workshop["module_type"] == "core"
+    assert by_code["DMO 04211"]["semester"] == 2
+    structures, communication = by_code["DMU 07411"], by_code["DMU 07412"]
+    assert (structures["nta_level"], structures["semester"], structures["module_name"]) == (7, 4, "DEMO Structures")
+    assert structures["year_label"] == "Higher Diploma"
+    assert communication["module_type"] == "fundamental"
+    campus = by_code["SLTP 06101"]
+    assert (campus["department"], campus["programme"], campus["nta_level"]) == ("Demo Campus", "Demo Engineering", 6)
+    assert len(notes) == 1 and "General Course Programme" in notes[0].title()
+
+
+def test_whole_prospectus_is_read_not_just_its_opening(app, hod, live_restored):
+    padding = "DEMO introduction text that fills the opening chapters.\n" * 3000
+    title = _upload(hod, (padding + DIT_LAYOUT).encode(), "prospectus.txt", large=True)
+    with app.app_context():
+        version = _version(app, title)
+        assert version.status == "published", version.validation_errors
+        assert len(version.entries) == 6
+        assert any("no NTA level" in w["message"] for w in version.validation_warnings)
+
+
+def test_prospectus_passages_carry_their_heading():
+    text = ("CHAPTER FIVE\nEXAMINATION REGULATIONS\n9.0 Absence from Examination\n"
+            "9.1 A DEMO candidate who absents oneself from a scheduled examination is discontinued.\n"
+            "DIT Prospectus Academic Year 2025/2026\n52 | P a g e\n10.0 Postponement of Examination\n"
+            "10.1 DEMO postponement needs approval from the Head of Department.\n")
+    chunks = svc.prospectus_chunks(text)
+    assert chunks[0].startswith("[Chapter Five: Examination Regulations › 9.0 Absence from Examination]")
+    assert chunks[1].startswith("[Chapter Five: Examination Regulations › 10.0 Postponement of Examination]")
+    assert not any("P a g e" in chunk for chunk in chunks)
 
 
 def test_csv_missing_columns_is_rejected():
@@ -295,23 +376,24 @@ def _messages(report):
     return " | ".join(issue["message"] for issue in report.errors)
 
 
-def test_validation_detects_duplicate_modules(draft):
+def test_printed_duplicate_codes_are_notes_not_stops(draft):
     version, programme = draft
     _entry(version, programme, "DUP-100", "DEMO One")
     _entry(version, programme, "DUP-100", "DEMO Two")
     _entry(version, programme, "DUP-101", "DEMO One")
-    messages = _messages(svc.validate_version(version))
-    assert "duplicate module code" in messages and "duplicate module name" in messages
+    report = svc.validate_version(version)
+    assert report.ok, _messages(report)
+    assert any("DUP-100 is printed more than once" in w["message"] for w in report.warnings)
 
 
 def test_validation_detects_missing_programme_and_bad_placement(draft):
     version, programme = draft
     _entry(version, None, "ORPH-100")
-    _entry(version, programme, "SEM-100", semester=4)
+    _entry(version, programme, "SEM-100", semester=7)
     _entry(version, programme, "LVL-100", level=7)
     messages = _messages(svc.validate_version(version))
     assert "department or programme is missing" in messages
-    assert "semester 4 is invalid" in messages
+    assert "semester 7 is invalid" in messages
     assert "NTA level 7 is not defined" in messages
 
 
@@ -336,3 +418,19 @@ def test_valid_version_passes_with_credit_warning_only(draft):
     report = svc.validate_version(version)
     assert report.ok, _messages(report)
     assert any("credits not recorded" in w["message"] for w in report.warnings)
+
+
+def test_docx_tables_keep_their_rows_and_place(tmp_path):
+    import docx
+
+    from file_processing import extract_text
+
+    document = docx.Document()
+    document.add_paragraph("Semester I")
+    table = document.add_table(rows=1, cols=3)
+    for cell, text in zip(table.rows[0].cells, ("DMO 04111", "DEMO Drawing", "6")):
+        cell.text = text
+    document.add_paragraph("Semester II")
+    path = tmp_path / "demo.docx"
+    document.save(path)
+    assert extract_text(str(path), "docx") == "Semester I\nDMO 04111 DEMO Drawing 6\nSemester II"

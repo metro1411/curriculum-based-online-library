@@ -21,6 +21,8 @@ Retrieval priority used by ai_engine (highest first):
 
 from __future__ import annotations
 
+import math
+from collections import Counter
 from dataclasses import dataclass, field
 
 CONTEXT_LABELS = {
@@ -194,6 +196,10 @@ def retrieve_curriculum(query_tokens, ctx, tokenize):
 
 
 # Words shared by most programme names; they cannot identify one programme.
+_PROGRAMME_CUES = (
+    "module modules course courses subject subjects programme programmes program curriculum offered study "
+    "studies semester level diploma certificate bachelor master degree award syllabus taught"
+)
 _GENERIC_PROGRAMME_WORDS = (
     "diploma ordinary bachelor certificate degree programme program engineering technology "
     "science higher basic technician master studies national"
@@ -207,6 +213,7 @@ def retrieve_programmes(query_tokens, tokenize, limit=2):
     query = set(query_tokens)
     if not query:
         return []
+    asks_for_modules = bool(query & set(tokenize(_PROGRAMME_CUES)))
     generic = set(tokenize(_GENERIC_PROGRAMME_WORDS))
     scored = []
     for programme in Programme.query.filter_by(is_active=True).all():
@@ -215,22 +222,39 @@ def retrieve_programmes(query_tokens, tokenize, limit=2):
         overlap = query & name
         if not overlap or len(overlap) / len(name) < 0.5:
             continue
+        if not asks_for_modules and len(query & words) < 2:
+            continue
         score = len(overlap) / len(name) + 0.25 * len(query & set(tokenize(programme.department.name)))
         scored.append({"kind": "programme", "programme": programme, "score": round(score, 2)})
     scored.sort(key=lambda item: item["score"], reverse=True)
     for item in scored[:limit]:
-        item["text"] = programme_outline_text(item["programme"])
+        item["text"] = programme_outline_text(item["programme"], levels=_named_levels(item["programme"], query, tokenize))
     return [item for item in scored[:limit] if item["text"]]
 
 
-def programme_outline_text(programme, max_modules=80):
-    """Every live module of a programme, by level and semester, as plain text."""
+def _named_levels(programme, query, tokenize):
+    """Levels whose award the question names ("ordinary diploma", "bachelor"), most specific first."""
+    best, levels = 0, None
+    for level in programme.nta_levels:
+        words = set(tokenize(level.year_label or ""))
+        if words and words <= query:
+            if len(words) > best:
+                best, levels = len(words), {level.level_number}
+            elif len(words) == best:
+                levels.add(level.level_number)
+    return levels
+
+
+def programme_outline_text(programme, max_modules=160, levels=None):
+    """Every live module of a programme (or of the given NTA levels), by level and semester, as plain text."""
     from models import Module, NtaLevel, Semester
 
-    modules = (Module.query.join(Semester).join(NtaLevel)
-               .filter(NtaLevel.programme_id == programme.id, Module.publication_status == "published",
-                       Module.is_active.is_(True))
-               .order_by(NtaLevel.level_number, Semester.semester_number, Module.display_order)
+    query = (Module.query.join(Semester).join(NtaLevel)
+             .filter(NtaLevel.programme_id == programme.id, Module.publication_status == "published",
+                     Module.is_active.is_(True)))
+    if levels:
+        query = query.filter(NtaLevel.level_number.in_(levels))
+    modules = (query.order_by(NtaLevel.level_number, Semester.semester_number, Module.display_order)
                .limit(max_modules).all())
     if not modules:
         return ""
@@ -251,24 +275,50 @@ def programme_outline_text(programme, max_modules=80):
     return "\n".join(lines)
 
 
+# Everyday words students use for what the regulations call something else.
+_RULE_SYNONYMS = {
+    "miss": "absent absence", "skip": "absent absence", "late": "postponement absence",
+    "fail": "supplementary repeat discontinued", "cheat": "irregularities penalties",
+    "gpa": "grade point average", "pay": "fee fees", "money": "fee fees", "cost": "fee fees",
+}
+
+
 def retrieve_prospectus(query_tokens, ctx, tokenize, top_k=4):
     """Search the live prospectus text (priority 3): rules, regulations and
-    programme descriptions as printed. Stopped or replaced uploads are never used."""
+    programme descriptions as printed. Stopped or replaced uploads are never used.
+
+    Rare words count for more than common ones (IDF), and a word in a
+    passage's heading line (chapter, section, programme) counts double.
+    """
     from models import CurriculumVersion, ProspectusChunk
 
     query = set(query_tokens)
     if not query:
         return []
+    for word, related in _RULE_SYNONYMS.items():
+        if query & set(tokenize(word)):
+            query |= set(tokenize(related))
     documents = {v.prospectus_document_id for v in CurriculumVersion.query.filter(
         CurriculumVersion.status == "published", CurriculumVersion.prospectus_document_id.isnot(None))}
     if not documents:
         return []
+    chunks = ProspectusChunk.query.filter(ProspectusChunk.document_id.in_(documents)).limit(3000).all()
+    tokenised = []
+    frequency = Counter()
+    for chunk in chunks:
+        heading, _, _ = chunk.content.partition("\n")
+        words = set(tokenize(chunk.content)) & query
+        heading_words = set(tokenize(heading)) & query if heading.startswith("[") else set()
+        tokenised.append((chunk, words, heading_words))
+        frequency.update(words)
+    minimum = 1 if len(set(query_tokens)) == 1 else 2
     scored = []
-    for chunk in ProspectusChunk.query.filter(ProspectusChunk.document_id.in_(documents)).limit(2000):
-        overlap = query & set(tokenize(chunk.content))
-        if len(overlap) >= 2:
-            scored.append({"kind": "prospectus", "chunk": chunk, "text": chunk.content,
-                           "title": chunk.document.title, "score": float(len(overlap)), "terms": len(overlap)})
+    for chunk, words, heading_words in tokenised:
+        if len(words) < minimum:
+            continue
+        score = sum(math.log(1 + len(chunks) / frequency[w]) * (2 if w in heading_words else 1) for w in words)
+        scored.append({"kind": "prospectus", "chunk": chunk, "text": chunk.content,
+                       "title": chunk.document.title, "score": round(score, 3), "terms": len(words)})
     scored.sort(key=lambda item: item["score"], reverse=True)
     return scored[:top_k]
 

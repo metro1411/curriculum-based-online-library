@@ -314,7 +314,8 @@ class Module(db.Model):
 
     @property
     def type_label(self):
-        return "General Studies Module" if self.module_type == "general_studies" else "Core Module"
+        return {"general_studies": "General Studies Module", "fundamental": "Fundamental Module",
+                "elective": "Elective Module"}.get(self.module_type, "Core Module")
 
     @property
     def is_published(self):
@@ -923,8 +924,15 @@ class CurriculumVersion(db.Model):
 
     @property
     def validation_errors(self):
+        return self._validation("errors")
+
+    @property
+    def validation_warnings(self):
+        return self._validation("warnings")
+
+    def _validation(self, key):
         try:
-            return json.loads(self.last_validation_json or "{}").get("errors", [])
+            return json.loads(self.last_validation_json or "{}").get(key, [])
         except ValueError:
             return []
 

@@ -235,6 +235,38 @@ def test_prospectus_rules_reach_the_prompt(app, seeded):
         db.session.rollback()
 
 
+def test_rule_questions_find_the_regulation_by_its_heading(app, seeded):
+    with app.app_context():
+        document = ProspectusDocument(title="DEMO rules prospectus", stored_filename="z", original_filename="z.txt",
+                                      extraction_status="success", extracted_text="DEMO")
+        db.session.add(document)
+        db.session.flush()
+        passages = [
+            "[Chapter Five: Examination Regulations › 9.0 Absence from Examination]\n"
+            "9.1 A DEMO candidate who absents oneself from an examination is discontinued.",
+            "[Chapter Five: Examination Regulations › 5.0 Examinations]\n"
+            "5.1 DEMO examinations include end of semester examinations and tests.",
+            "[Chapter Five: Examination Regulations › 11.0 Dates of Examinations]\n"
+            "11.1 DEMO end of semester examination dates are published each semester.",
+        ]
+        for index, content in enumerate(passages):
+            db.session.add(ProspectusChunk(document_id=document.id, chunk_index=index, content=content))
+        db.session.add(CurriculumVersion(label="DEMO rules live", academic_year_label="2041/2042",
+                                         status="published", prospectus_document_id=document.id))
+        db.session.flush()
+        tokens = ai_engine._tokenize("What happens if I miss an end of semester examination?")
+        matches = curriculum_context.retrieve_prospectus(tokens, None, ai_engine._tokenize)
+        assert "9.0 Absence from Examination" in matches[0]["text"]
+        db.session.rollback()
+
+
+def test_rule_questions_do_not_pull_programme_outlines(app, seeded):
+    with app.app_context():
+        student = _student(app)
+        _, retrieved, _ = _scope("How is the GPA computed?", student)
+        assert retrieved["programme_matches"] == []
+
+
 class _AttachmentModels(_FakeModels):
     def generate_content(self, model, contents, config):
         self.parts = contents[-1]["parts"]

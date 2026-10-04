@@ -20,6 +20,13 @@
     {% if report.hidden_departments %}<h2>Hidden departments</h2><p>{{ report.hidden_departments|join(', ') }}</p>{% endif %}
   </section>
   {% endif %}
+  {% if version.validation_warnings %}
+  <details class="card card-pad mb-6">
+    <summary><strong>Notes from the read</strong> <span class="badge badge-warning">{{ version.validation_warnings|length }}</span></summary>
+    <p>Published as printed. Check these lines in the prospectus.</p>
+    <ul>{% for issue in version.validation_warnings %}<li>{{ issue.message }}{% if issue.source %} <small>({{ issue.source }})</small>{% endif %}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
   <section class="card card-pad">
     <div class="section-header"><div><h2>Modules</h2></div></div>
     <div class="responsive-table"><table class="data-table"><thead><tr><th>Module</th><th>Outcome</th><th>Department</th><th>Resources</th><th>Lecturers</th></tr></thead><tbody>

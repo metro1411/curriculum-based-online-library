@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
 from extensions import db
-from file_processing import chunk_text, extract_text
+from file_processing import extract_text
 from governance import record_audit
 from models import (
     AcademicYear, CurriculumEntry, CurriculumVersion, Department, DraftProgramme,
@@ -44,11 +44,12 @@ PROSPECTUS_MIME_TYPES = {
     "md": "text/markdown; charset=utf-8",
     "csv": "text/csv; charset=utf-8",
 }
-MODULE_TYPES = {"core", "general_studies"}
+MODULE_TYPES = {"core", "fundamental", "elective", "general_studies"}
 MODULE_CODE_PATTERN = re.compile(r"[A-Z0-9][A-Z0-9 ./-]{1,29}")
 ACADEMIC_YEAR_PATTERN = re.compile(r"(\d{4})/(\d{4})")
 MAX_LEVEL = 10
-MAX_SEMESTERS = 3
+MAX_SEMESTERS = 6
+PROSPECTUS_MAX_CHARS = 3_000_000  # the whole book: the DIT prospectus is about 330,000 characters
 
 CSV_COLUMNS = (
     "department", "programme", "nta_level", "year_label", "semester",
@@ -111,7 +112,7 @@ def store_prospectus(file_storage, *, title, academic_year_label, user):
             sha256=hashlib.sha256(raw).hexdigest(),
             uploaded_by_id=getattr(user, "id", None),
         )
-        text = raw.decode("utf-8", errors="ignore") if ext == "csv" else extract_text(path, ext)
+        text = raw.decode("utf-8", errors="ignore") if ext == "csv" else extract_text(path, ext, PROSPECTUS_MAX_CHARS)
         if text and text.strip():
             document.extracted_text = text
             document.extraction_status = "success"
@@ -124,7 +125,7 @@ def store_prospectus(file_storage, *, title, academic_year_label, user):
         db.session.add(document)
         db.session.flush()
         if document.extraction_status == "success" and ext != "csv":
-            for index, chunk in enumerate(chunk_text(text)):
+            for index, chunk in enumerate(prospectus_chunks(text)):
                 db.session.add(ProspectusChunk(document_id=document.id, chunk_index=index, content=chunk))
         record_audit(
             "prospectus.uploaded", "ProspectusDocument", target_id=document.id,
@@ -141,66 +142,250 @@ def store_prospectus(file_storage, *, title, academic_year_label, user):
         raise
 
 
-_LEVEL_RE = re.compile(r"\bNTA\s*level\s*(\d{1,2})\b", re.I)
-_SEMESTER_RE = re.compile(r"\bsemester\s*(\d|iii|ii|i|one|two|three)\b", re.I)
-_DEPARTMENT_RE = re.compile(r"^\s*department\s+of\s+(.{3,120}?)\s*$", re.I)
+_NOISE_RE = re.compile(r"^(?:[ivxlc\d]+\s*\|\s*p\s*a\s*g\s*e|dit prospectus academic year \d{4}/\d{4})$", re.I)
+_CHAPTER_RE = re.compile(r"^chapter\s+[a-z]+$", re.I)
+_DEPARTMENT_RE = re.compile(r"^(?:\d+(?:\.\d+)*\.?\s+)?department\s+of\s+(.{3,120}?)$", re.I)
+_CAMPUS_RE = re.compile(r"^\d+(?:\.\d+)*\.?\s+([A-Z][A-Z ]{2,40}?\s+CAMPUS)$")
 _PROGRAMME_RE = re.compile(
-    r"^\s*((?:ordinary\s+|higher\s+|basic\s+|technician\s+)?(?:diploma|bachelor|certificate|master)\b.{3,140}?)\s*$",
+    r"^(?:\(?[a-z]{1,2}\)\.?\s*(?=.*\b(?:certificates?|diploma|bachelor|master|programme)\b)|"
+    r"(?=(?:(?:ordinary|higher|basic|technician|national)\s+)*(?:diploma|bachelor|certificate|master)\b))"
+    r"(.{3,160})$",
     re.I,
 )
-_MODULE_RE = re.compile(
-    r"^\s*([A-Z]{2,6}[ -]?\d{3,6}[A-Z]?)\s*[-–:|.]?\s+([A-Za-z(][^|\t]{2,180}?)"
-    r"(?:\s+[|\t]?\s*(\d{1,2}(?:\.\d{1,2})?))?\s*$"
-)
-_SEMESTER_WORDS = {"i": 1, "one": 1, "1": 1, "ii": 2, "two": 2, "2": 2, "iii": 3, "three": 3, "3": 3}
+_LEVEL_RE = re.compile(r"\bNTA\b\W{0,3}(?:level\W{0,3})?(\d{1,2})\b", re.I)
+_NVA_RE = re.compile(r"\bNVA\b", re.I)
+_SEMESTER_RE = re.compile(
+    r"^(?:(?:core|fundamental|elective|and|\s)*modules\s+for\s+)?sem[ei]st[ea]r\s*(iii|ii|iv|vi|v|i|[1-6]|one|two|three|four|five|six)\b"
+    r"[\s:.-]*(.*)$", re.I)
+_LEVEL_LINE_RE = re.compile(r"^NTA\s*level\s*(\d{1,2})\b(.*)$", re.I)
+_TYPE_RE = re.compile(r"^(fundamental|core|elective|optional)\s+modules?\b", re.I)
+_STOP_RE = re.compile(r"^(?:(?:sub[- ]?)?total\b|(?:\d+(?:\.\d+)*\.?\s+)?list of academic staff|minimum credits)", re.I)
+_CODE = r"[A-Z]{2,5}(?: [A-Z]{1,2})? ?\d{4,5}[A-Z]?"
+_MODULE_RE = re.compile(rf"^(?:\d{{1,2}}\.?\s+)?({_CODE})(?![\w-])\s*[-–:|.]?\s*(.*)$")
+_CLASS_RE = re.compile(r"^(.*?)\s+(fundamental|core|elective)$", re.I)
+_CREDIT_RE = re.compile(r"^(.*?)\s*[|\t]?\s*(\d{1,2}(?:\.\d{1,2})?)$")
+_SEMESTER_WORDS = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "one": 1, "two": 2, "three": 3,
+                   "four": 4, "five": 5, "six": 6, **{str(n): n for n in range(1, 7)}}
+_MODULE_TYPE_WORDS = {"fundamental": "fundamental", "core": "core", "elective": "elective", "optional": "elective"}
+_SMALL_WORDS = {"and", "of", "in", "the", "for", "with", "to"}
+
+
+def _clean_line(raw):
+    return " ".join(raw.replace(" ", " ").replace("\t", " ").split())
+
+
+_SECTION_RE = re.compile(r"^(\d{1,2}(?:\.\d{1,2}){1,2}|\d{1,2}(?=\.))\.?\s+([A-Za-z].{2,80})$")
+_PROSPECTUS_CHUNK = 1200
+
+
+def prospectus_chunks(text, size=_PROSPECTUS_CHUNK):
+    """Split prospectus text into passages that each name where they sit.
+
+    Every passage starts with its place in the book (chapter, numbered
+    section, department or programme heading), so a rule such as "9.0 Absence
+    from Examination" is found by its heading and quoted with its context.
+    Page footers and the table of contents are dropped.
+    """
+    chapter = section = programme = None
+    chunks, buffer = [], []
+
+    def place():
+        return " › ".join(part for part in (chapter, section, programme) if part)
+
+    def flush():
+        body = "\n".join(buffer).strip()
+        if len(body) > 40:
+            chunks.append(f"[{place()}]\n{body}" if place() else body)
+        buffer.clear()
+
+    lines = [_clean_line(raw) for raw in (text or "").splitlines()]
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if not line or _NOISE_RE.match(line) or re.search(r"\.{5,}", line):
+            continue
+        if _CHAPTER_RE.match(line):
+            flush()
+            title = lines[i] if i < len(lines) and lines[i].isupper() else ""
+            i += 1 if title else 0
+            chapter, section, programme = _title(f"{line}: {title}" if title else line), None, None
+            continue
+        match = _SECTION_RE.match(line)
+        if match and (match.group(1).endswith(".0") or len(match.group(2).split()) <= 8) \
+                and not re.search(r"\d[\d,]{3,}", match.group(2)) \
+                and not match.group(2).endswith((",", ";")) and not _MODULE_RE.match(line):
+            flush()
+            section, programme = f"{match.group(1)} {_title(match.group(2))}", None
+            continue
+        if _PROGRAMME_RE.match(line) and re.match(r"\(?[a-z]{1,2}\)", line) and not line.endswith("."):
+            flush()
+            programme = _title(re.sub(r"^\(?[a-z]{1,2}\)\.?\s*", "", line))
+        if sum(len(part) + 1 for part in buffer) + len(line) > size:
+            flush()
+        buffer.append(line)
+    flush()
+    return chunks
+
+
+def _title(text):
+    """Title-case an all-caps heading; leave mixed-case text as printed."""
+    text = " ".join(text.split())
+    if text != text.upper():
+        return text
+    words = text.title().split()
+    return " ".join(w.lower() if i and w.lower() in _SMALL_WORDS else w for i, w in enumerate(words))
+
+
+def _programme_parts(heading, department):
+    """Split a programme heading into (programme name, award).
+
+    DIT prints one heading per award ("Basic Technician Certificate in Civil
+    Engineering (NTA Level 4)"); the programme is the field after the award,
+    so every award in one field becomes one programme with several levels.
+    """
+    text = re.sub(r"\[.*?\]?$|\[.*?\]", " ", heading)
+    text = re.sub(r"[-–(]*\s*\bN[TV]A\b\s*\(?\s*(?:level)?\s*\d{1,2}(?:\s*[-–]\s*\d{1,2})?\s*\)?", " ",
+                  text, flags=re.I)
+    text = re.sub(r"\([^)]*\)?", " ", text)
+    text = re.sub(r"\bENG\.(?=\s|$)", "ENGINEERING", text)
+    text = re.sub(r"\bprogramme\b", " ", text, flags=re.I)
+    text = re.sub(r"\b(?:level)\s*$|[()]", " ", text, flags=re.I)
+    text = " ".join(text.split()).strip(" -–.:,")
+    field_match = (re.search(r"\bin\s+(.+)$", text, re.I)
+                   or re.search(r"\b(?:bachelor|master)(?:\s+degree)?\s+of\s+(.+)$", text, re.I))
+    if field_match and not (department or "").lower().startswith("general studies"):
+        name = field_match.group(1).strip(" -–.:,")
+        award = text[:field_match.start(1)]
+        award = re.sub(r"\s+(?:in|of)\s*$", "", award.strip(), flags=re.I)
+    else:
+        name, award = department, text
+    return (_title(name)[:150] if name else None), (_title(award)[:40] or None)
 
 
 def extract_candidates(text):
-    """Heuristically find module lines in prospectus text.
+    """Module rows read from prospectus text (see ``extract_prospectus``)."""
+    return extract_prospectus(text)[0]
 
-    Returns a list of dicts. Every value is a *candidate* that must be
-    reviewed: the parser only reads what is printed and never fills gaps.
+
+def _programme_key(name):
+    """Match spelling variants such as "Telecommunication" and "Telecommunications"."""
+    return " ".join(re.sub(r"s$", "", word) for word in re.findall(r"[a-z0-9]+", name.lower()))
+
+
+def extract_prospectus(text):
+    """Read module lines from prospectus text, laid out the way the DIT prospectus prints them.
+
+    Structure comes from headings: ``6.1 DEPARTMENT OF …`` or ``8.1 … CAMPUS``,
+    a programme heading per award with its NTA level, ``Semester I/II``,
+    ``FUNDAMENTAL``/``CORE``/``ELECTIVE MODULES`` and ``CODE Title Credits``
+    lines (titles may wrap). Only what is printed is read; nothing is filled in.
+    Programmes printed without an NTA level (vocational NVA awards, bridging
+    courses) are skipped and listed in the returned notes.
+
+    Returns ``(rows, notes)``.
     """
-    department = programme = None
+    lines = [_clean_line(raw) for raw in (text or "").splitlines()]
+    department = programme = award = skipped_heading = None
     level = semester = None
-    candidates = []
-    for line_number, raw_line in enumerate((text or "").splitlines(), start=1):
-        line = " ".join(raw_line.replace(" ", " ").split())
-        if not line:
+    module_type = "core"
+    candidates, seen, notes, names = [], set(), [], {}
+    i = 0
+    while i < len(lines):
+        line_number, line = i + 1, lines[i]
+        i += 1
+        if not line or _NOISE_RE.match(line) or re.search(r"\.{5,}", line):
+            continue
+        if _CHAPTER_RE.match(line) or _STOP_RE.match(line):
+            if not re.match(r"(?:sub[- ]?)?total|minimum", line, re.I):
+                programme = None
             continue
         match = _DEPARTMENT_RE.match(line)
+        if match and (line.isupper() or line[0].isdigit()):
+            department, programme = _title(re.sub(r"\(.*?\)", "", match.group(1)).strip()), None
+            continue
+        match = _CAMPUS_RE.match(line)
         if match:
-            department = match.group(1).strip().title() if match.group(1).isupper() else match.group(1).strip()
+            department, programme = _title(match.group(1)), None
             continue
         match = _PROGRAMME_RE.match(line)
-        if match and not _MODULE_RE.match(line):
-            programme = match.group(1).strip()
-            level = semester = None
-        level_match = _LEVEL_RE.search(line)
-        if level_match:
-            level = int(level_match.group(1))
-        semester_match = _SEMESTER_RE.search(line)
-        if semester_match:
-            semester = _SEMESTER_WORDS.get(semester_match.group(1).lower())
-        if level_match or semester_match or match:
+        if match and not _MODULE_RE.match(line) and not line.endswith(".") and department:
+            heading = match.group(1)
+            while (not _LEVEL_RE.search(heading) and not _NVA_RE.search(heading) and i < len(lines)
+                   and lines[i] and len(lines[i]) < 70 and not _SEMESTER_RE.match(lines[i])
+                   and not _MODULE_RE.match(lines[i]) and not _NOISE_RE.match(lines[i])
+                   and not _LEVEL_LINE_RE.match(lines[i])
+                   and (lines[i].isupper() or re.match(r"[(\d]", lines[i]) or re.search(r"\bNTA\b", lines[i], re.I))):
+                heading, i = f"{heading} {lines[i]}", i + 1
+            programme, award = _programme_parts(heading, department)
+            level_match = _LEVEL_RE.search(heading)
+            level = int(level_match.group(1)) if level_match else None
+            if programme:
+                programme = names.setdefault((department, _programme_key(programme)), programme)
+            semester, module_type, skipped_heading = None, "core", (heading, line_number)
             continue
-        module_match = _MODULE_RE.match(line)
-        if not module_match:
+        if programme is None:
             continue
-        name = module_match.group(2).strip(" -–:|.")
+        match = _LEVEL_LINE_RE.match(line)
+        if match:
+            level, line = int(match.group(1)), match.group(2).strip()
+        match = _SEMESTER_RE.match(line)
+        if match:
+            semester, module_type = _SEMESTER_WORDS[match.group(1).lower()], "core"
+            line = match.group(2).strip()
+        match = _TYPE_RE.match(line)
+        if match:
+            module_type = _MODULE_TYPE_WORDS[match.group(1).lower()]
+            continue
+        match = _MODULE_RE.match(line)
+        if not match:
+            continue
+        if level is None:
+            if skipped_heading:
+                notes.append(f"Line {skipped_heading[1]}: skipped “{skipped_heading[0][:90]}” "
+                             "because it has no NTA level.")
+                skipped_heading = None
+            continue
+        code, rest = _normalise_code(match.group(1)), match.group(2)
+        credit_match = _CREDIT_RE.match(rest)
+        credits = credit_match.group(2) if credit_match else None
+        name = credit_match.group(1) if credit_match else rest
+        while credits is None and i < len(lines):
+            nxt = lines[i]
+            if (not nxt or _NOISE_RE.match(nxt) or _MODULE_RE.match(nxt) or _SEMESTER_RE.match(nxt)
+                    or _TYPE_RE.match(nxt) or _STOP_RE.match(nxt) or _PROGRAMME_RE.match(nxt)
+                    or len(nxt) > 90):
+                break
+            i += 1
+            credit_match = _CREDIT_RE.match(nxt)
+            if credit_match:
+                name, credits = f"{name} {credit_match.group(1)}", credit_match.group(2)
+            else:
+                name = f"{name} {nxt}"
+        name = " ".join(name.split()).strip(" -–:|.")
+        row_type = module_type
+        class_match = _CLASS_RE.match(name)
+        if class_match:
+            name, row_type = class_match.group(1), _MODULE_TYPE_WORDS[class_match.group(2).lower()]
         if not re.search(r"[A-Za-z]{3}", name):
             continue
+        key = (department, programme, level, semester, code, name.lower())
+        if key in seen:
+            continue
+        seen.add(key)
         candidates.append({
             "department": department,
             "programme": programme,
             "nta_level": level,
+            "year_label": award,
             "semester": semester,
-            "module_code": _normalise_code(module_match.group(1)),
+            "module_code": code,
             "module_name": name[:200],
-            "credits": module_match.group(3),
+            "module_type": row_type,
+            "credits": credits,
             "source_reference": f"Line {line_number}",
         })
-    return candidates
+    return candidates, notes
 
 
 def parse_curriculum_csv(text):
@@ -297,11 +482,12 @@ def stage_rows(version, rows, *, origin, user):
 
 
 def read_rows(document):
-    """Rows and line problems read from a stored prospectus."""
+    """Rows, line problems (which stop the upload) and notes read from a stored prospectus."""
     if document.original_filename.lower().endswith(".csv"):
         rows, problems = parse_curriculum_csv(document.extracted_text)
-        return rows, problems, "csv"
-    return extract_candidates(document.extracted_text), [], "extracted"
+        return rows, problems, [], "csv"
+    rows, notes = extract_prospectus(document.extracted_text)
+    return rows, [], notes, "extracted"
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +537,7 @@ def validate_version(version):
     if not entries:
         report.error("No modules were found in the file.")
 
-    seen_codes, seen_names, codes_in_version = set(), set(), set()
+    seen_codes, codes_in_version = {}, set()
     for entry in entries:
         label = entry.module_code or entry.module_name or "A module line"
         programme = entry.programme
@@ -379,15 +565,11 @@ def validate_version(version):
 
         if entry.programme_id and entry.module_code:
             key = (entry.programme_id, entry.module_code.upper())
-            if key in seen_codes:
-                report.error(f"{label}: duplicate module code in {programme.name}.", entry)
-            seen_codes.add(key)
+            first = seen_codes.setdefault(key, entry)
+            if first is not entry:
+                report.warn(f"{label} is printed more than once in {programme.name} "
+                            f"(“{first.module_name}” and “{entry.module_name}”).", entry)
             codes_in_version.add(entry.module_code.upper())
-        if entry.programme_id and entry.module_name:
-            key = (entry.programme_id, entry.nta_level, entry.semester_number, entry.module_name.strip().lower())
-            if key in seen_names:
-                report.error(f"{label}: duplicate module name in the same programme, level and semester.", entry)
-            seen_names.add(key)
 
     graph = {}
     for entry in entries:
@@ -492,7 +674,7 @@ def publish_upload(file_storage, *, title, academic_year_label, user, allow_larg
     elif document.extraction_status != "success":
         report.error(document.extraction_message or "No readable text was found.")
     else:
-        rows, problems, origin = read_rows(document)
+        rows, problems, notes, origin = read_rows(document)
         if rows:
             stage_rows(version, rows, origin=origin, user=user)
             db.session.flush()
@@ -502,6 +684,8 @@ def publish_upload(file_storage, *, title, academic_year_label, user, allow_larg
             report.error("No modules were found in the file. Upload a text PDF or the CSV template.")
         for problem in problems:
             report.error(problem)
+        for note in notes:
+            report.warn(note)
 
     if report.ok and not allow_large_change:
         old = _live_modules()
@@ -808,7 +992,11 @@ def _valid_academic_year(label):
 
 
 def _normalise_code(value):
+    """Upper case, single spaces; ``GST05112`` and ``SLT P 06101`` become ``GST 05112`` and ``SLTP 06101``."""
     value = " ".join((value or "").upper().split())
+    match = re.fullmatch(r"([A-Z]{2,5}(?: [A-Z]{1,2})?) ?(\d{3,6}[A-Z]?)", value)
+    if match:
+        value = f"{match.group(1).replace(' ', '')} {match.group(2)}"
     return value[:50] or None
 
 

@@ -14,12 +14,18 @@ upload → read → check → swap (one transaction) → live
 ```
 
 1. **Upload.** PDF, DOCX, TXT, MD or CSV, with a title and academic year (`2026/2027`). The file type is checked against its contents. The original is stored privately with its SHA-256 (`ProspectusDocument`).
-2. **Read.** CSV uses the template in `docs/samples/` (required columns: `department, programme, nta_level, semester, module_code, module_name`; optional: `year_label, module_type, credits, prerequisites, description`). Other formats go through `extract_candidates`, which reads department, programme, NTA level, semester and `CODE Name [credits]` lines. Rows are staged as `CurriculumEntry` rows on a `CurriculumVersion`.
+2. **Read.** CSV uses the template in `docs/samples/` (required columns: `department, programme, nta_level, semester, module_code, module_name`; optional: `year_label, module_type, credits, prerequisites, description`). PDF, DOCX and text go through `extract_prospectus`, which reads the whole book (up to 3 million characters) the way the DIT prospectus prints it:
+   - `6.1 DEPARTMENT OF …` sets the department; `8.1 MWANZA CAMPUS` makes the campus its own department;
+   - each award heading (`(a) BASIC TECHNICIAN CERTIFICATE (BTC) IN CIVIL ENGINEERING (NTA LEVEL 4)`, even wrapped over two lines) gives the NTA level and the award. The programme is the field after the award, so BTC, TC, OD, HD and Bachelor in Civil Engineering become one programme, *Civil Engineering*, with levels 4 to 8, and each level is labelled with its award;
+   - `Semester I` to `Semester VI` (also `SEMISTER`, `Semester 2 Modules`, `Core Modules for Semester I`);
+   - `FUNDAMENTAL`, `CORE` and `ELECTIVE MODULES` set the module type, as does a *Class* column;
+   - `CODE Title Credits` lines, with or without an S/N column, titles wrapped over several lines, and codes printed as `GST05112` or `SLT P 06101` (stored as `GST 05112`, `SLTP 06101`);
+   - page footers, totals and staff lists are ignored. A module printed twice identically in the same semester is kept once.
+   Programmes printed without an NTA level (vocational NVA awards, the general course programmes) are skipped and listed as notes. Rows are staged as `CurriculumEntry` rows on a `CurriculumVersion`.
 3. **Check** (`validate_version`). Any of these stops the upload:
    - no readable text, or no modules found;
    - a module missing its code, name, department, programme, NTA level or semester;
-   - a bad code, a level outside 1–10, a semester outside 1–3, or credits outside 0–100;
-   - a duplicate code or name in one programme;
+   - a bad code, a level outside 1–10, a semester outside 1–6, or credits outside 0–100;
    - a prerequisite that is unknown, refers to itself or forms a loop;
    - a CSV line that cannot be read;
    - the same file is already live;
@@ -30,7 +36,7 @@ upload → read → check → swap (one transaction) → live
    - prerequisites are linked from the new prospectus;
    - content is reallocated (section 2);
    - departments, programmes, levels and semesters with no live modules are hidden, never deleted.
-5. **Result.** `/department/prospectus/<id>` shows each module's outcome, students who need placing, and hidden departments. A stopped upload shows its problems instead.
+5. **Result.** `/department/prospectus/<id>` shows each module's outcome, students who need placing, hidden departments, and notes from the read: codes printed more than once in a programme with different titles, and skipped programmes. Notes never stop a publish; they point at lines DIT may want to correct in the prospectus. A stopped upload shows its problems instead.
 
 Every live change is recorded in the version's undo journal. **Undo** (`undo_last_publish`) reverses the latest publish exactly and brings back the version it replaced. Undo is refused once lecturers have added resources, topics or claims to the new modules. All steps are audited (`prospectus.uploaded`, `prospectus.published`, `prospectus.stopped`, `prospectus.undone`).
 
@@ -67,8 +73,8 @@ The former Curriculum Administrator role is retired. Start-up migration turns ex
 `curriculum_context.build_context` gathers the student's department, programme, level, semester, academic year and modules. Retrieval priority:
 
 1. Lecturer-approved resources for the selected or current module.
-2. Live curriculum records: the student's modules in full, any other live module by name or code, and the whole module outline of any programme the question names (`retrieve_programmes`).
-3. Live prospectus text, including printed rules and regulations (`retrieve_prospectus`, top 4 chunks). Stopped and replaced uploads are never used.
+2. Live curriculum records: the student's modules in full, any other live module by name or code, and the module outline of any programme the question names (`retrieve_programmes`), narrowed to the award it names ("ordinary diploma", "bachelor") when it names one.
+3. Live prospectus text, including printed rules and regulations (`retrieve_prospectus`, top 4 passages). Stopped and replaced uploads are never used. `prospectus_chunks` splits the book into passages that each start with their place, for example `[Chapter Five: Examination Regulations › 9.0 Absence from Examination]`. Rare words score higher than common ones, words in that heading count double, and a few everyday words are widened to the regulation's own terms (*miss* → *absence*, *fail* → *supplementary*, *repeat*).
 4. Other approved resources in the student's current modules.
 5. General knowledge, optionally web-grounded, always labelled.
 
