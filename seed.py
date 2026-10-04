@@ -76,7 +76,7 @@ def _load_bundled_prospectus():
             return
         db.session.commit()
     except Exception:
-        # The app still starts; the HOD can upload the prospectus by hand.
+        # The app still starts; the Curriculum Administrator can upload the prospectus by hand.
         db.session.rollback()
         logger.exception("The bundled prospectus could not be loaded.")
         return

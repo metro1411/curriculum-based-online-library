@@ -6,7 +6,7 @@ The live DIT prospectus is the source of truth for every department, programme a
 
 ## 1. Prospectus upload
 
-Only a Head of Department (`role="department_head"`) can upload, at `/department/prospectus`.
+Only a Curriculum Administrator (`role="admin"`) can upload, at `/admin/prospectus`.
 
 ```
 upload → read → check → swap (one transaction) → live
@@ -29,16 +29,16 @@ upload → read → check → swap (one transaction) → live
    - a prerequisite that is unknown, refers to itself or forms a loop;
    - a CSV line that cannot be read;
    - the same file is already live;
-   - more than half of the live modules would be retired, unless the HOD ticks *Confirm a large change*.
+   - more than half of the live modules would be retired, unless the administrator ticks *Confirm a large change*.
 4. **Swap** (`publish_upload`). In one transaction:
    - every live module in every department is archived;
    - each staged row becomes a new live module (`provenance="prospectus"`) under the version's academic year, which becomes current in its department;
    - prerequisites are linked from the new prospectus;
    - content is reallocated (section 2);
    - departments, programmes, levels and semesters with no live modules are hidden, never deleted.
-5. **Result.** `/department/prospectus/<id>` shows each module's outcome, students who need placing, hidden departments, and notes from the read: codes printed more than once in a programme with different titles, and skipped programmes. Notes never stop a publish; they point at lines DIT may want to correct in the prospectus. A stopped upload shows its problems instead.
+5. **Result.** `/admin/prospectus/<id>` shows each module's outcome, students who need placing, hidden departments, and notes from the read: codes printed more than once in a programme with different titles, and skipped programmes. Notes never stop a publish; they point at lines DIT may want to correct in the prospectus. A stopped upload shows its problems instead.
 
-**Shipped prospectus.** `bundled_prospectus/dit_prospectus_2025_2026.txt` (the text of the DIT Prospectus 2025/2026) is published on first start by `load_bundled_prospectus`, with the academic year taken from the file name. A file whose SHA-256 was ever loaded is never loaded again, so an HOD's undo or a newer upload sticks. Set `LOAD_BUNDLED_PROSPECTUS=0` to skip it; `flask load-prospectus` runs it by hand.
+**Shipped prospectus.** `bundled_prospectus/dit_prospectus_2025_2026.txt` (the text of the DIT Prospectus 2025/2026) is published on first start by `load_bundled_prospectus`, with the academic year taken from the file name. A file whose SHA-256 was ever loaded is never loaded again, so an undo or a newer upload sticks. Set `LOAD_BUNDLED_PROSPECTUS=0` to skip it; `flask load-prospectus` runs it by hand.
 
 Every live change is recorded in the version's undo journal. **Undo** (`undo_last_publish`) reverses the latest publish exactly and brings back the version it replaced. Undo is refused once lecturers have added resources, topics or claims to the new modules. All steps are audited (`prospectus.uploaded`, `prospectus.published`, `prospectus.stopped`, `prospectus.undone`).
 
@@ -58,17 +58,18 @@ Module code links an old module to its replacement. Codes are compared in upper 
 
 What moves with a module: resources (verification unchanged), lecturer assignments (status unchanged), topics and student module registrations. History (views, downloads, saved items, AI conversations) stays on the archived module.
 
-Students are re-pointed to the matching programme (same row, or the only live programme with the same name), NTA level, semester and the new academic year. Students with no match are listed on the result page for the HOD to place at `/department/students`.
+Students are re-pointed to the matching programme (same row, or the only live programme with the same name), NTA level, semester and the new academic year. Students with no match are listed on the result page to place at `/admin/students` (or by their HOD at `/department/students`).
 
 ## 3. Roles
 
 | Role | Curriculum rights |
 | --- | --- |
-| Head of Department | Uploads, publishes and undoes the prospectus for the whole institution. Sees the live modules of their department, places their students, approves lecturers and claims. |
+| Curriculum Administrator | Uploads, publishes and undoes the prospectus for the whole institution. Places any student. Reads the full audit log. |
+| Head of Department | Adds, edits and archives modules (`provenance="hod_manual"`) and manages academic years in their department; the next upload replaces them. Places their students, approves lecturers and claims. |
 | Lecturer | Publishes resources and topics in approved modules only. Edits only their own uploads. |
 | Student | Sees published modules of their placement or registrations, and verified resources. |
 
-The former Curriculum Administrator role is retired. Start-up migration turns existing `admin` accounts into heads of department, and deactivates any without a department.
+Administrators sign up with a `9000…` ID and `ADMIN_ACTIVATION_CODE` (falls back to `HOD_ACTIVATION_CODE`), or via `flask create-curriculum-admin`. Start-up migration restores administrator accounts that an earlier release had turned into department-less, switched-off HOD accounts.
 
 ## 4. DIT AI
 
@@ -95,7 +96,7 @@ Each answer is labelled and the label is stored on `AIMessage`:
 
 ## 5. Student placement and SOMA
 
-Until SOMA is connected, the HOD sets a student's programme, level, semester, academic year and registered modules at `/department/students/<id>` (audited as `student_context.updated`).
+Until SOMA is connected, the HOD (or the administrator, at `/admin/students/<id>`) sets a student's programme, level, semester, academic year and registered modules at `/department/students/<id>` (audited as `student_context.updated`).
 
 SOMA stays the authoritative, **read-only** record system. `integrations/soma.py` defines:
 
@@ -127,8 +128,8 @@ All endpoints require sign-in and keep role scoping.
 | `POST /api/v1/ai/ask` | student | Includes `context_label`, `context_label_text`, `curriculum_context` |
 | `GET /api/v1/me/academic-context` | student | Placement, modules, source, missing fields |
 | `GET /api/v1/me/recommendations` | student | Recommendations with their evidence |
-| `GET /api/v1/curriculum/versions` | all | Students: live and replaced. HOD: all, including stopped |
-| `GET /api/v1/curriculum/versions/<id>` | all | Detail; staged entries for HODs; 404 for students on stopped uploads |
+| `GET /api/v1/curriculum/versions` | all | Students: live and replaced. Administrator and HOD: all, including stopped |
+| `GET /api/v1/curriculum/versions/<id>` | all | Detail; staged entries for administrators and HODs; 404 for students on stopped uploads |
 
 ## 7. Data model notes
 
@@ -140,5 +141,5 @@ Schema changes are additive and applied by `app._apply_schema_migrations` on sta
 
 - `tests/test_prospectus_workflow.py`: publish, reallocation, undo, every stop condition, parsing and validation.
 - `tests/test_rag_curriculum.py`: retrieval priority, programme outlines, prospectus rules, labels, attachments.
-- `tests/test_permissions.py`: HOD-only prospectus routes, lecturer ownership, student data isolation, API visibility.
+- `tests/test_permissions.py`: administrator-only prospectus routes, admin sign-up and restore, lecturer ownership, student data isolation, API visibility.
 - `tests/test_soma_integration.py`: adapter boundary and HOD placement.
