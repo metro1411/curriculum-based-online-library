@@ -12,7 +12,10 @@ from flask_login import login_required, current_user
 import ai_engine
 from academic_activity import is_academic_question
 from extensions import db
-from models import Department, Programme, NtaLevel, Semester, Module, Resource, LecturerAssignment
+from models import (
+    CurriculumVersion, Department, Programme, NtaLevel, Semester, Module, Resource,
+    LecturerAssignment, StudentModuleRegistration,
+)
 from learning import record_learning_event
 
 api_bp = Blueprint("api", __name__, url_prefix="/api/v1")
@@ -32,6 +35,13 @@ def _visible_module_query():
             query = query.filter(Module.semester_id == current_user.semester_id)
         if current_user.academic_year_id:
             query = query.filter(Module.academic_year_id == current_user.academic_year_id)
+        registered = _registered_module_ids()
+        if registered:
+            query = Module.query.filter(db.or_(
+                Module.id.in_([m.id for m in query.all()]),
+                db.and_(Module.id.in_(registered), Module.publication_status == "published",
+                        Module.is_active.is_(True)),
+            ))
         return query
     if current_user.is_lecturer:
         return Module.query.join(LecturerAssignment).filter(
@@ -42,7 +52,14 @@ def _visible_module_query():
         return Module.query.join(Semester).join(NtaLevel).join(Programme).filter(
             Programme.department_id == current_user.department_id
         )
+    if current_user.is_admin:
+        return Module.query
     abort(403)
+
+
+def _registered_module_ids():
+    return [row.module_id for row in StudentModuleRegistration.query.filter_by(
+        student_id=current_user.id, status="registered")]
 
 
 def _visible_resource_query():
@@ -60,6 +77,14 @@ def _visible_resource_query():
             query = query.filter(Module.semester_id == current_user.semester_id)
         if current_user.academic_year_id:
             query = query.filter(Module.academic_year_id == current_user.academic_year_id)
+        registered = _registered_module_ids()
+        if registered:
+            query = Resource.query.join(Module).filter(
+                Resource.verification_status == "verified",
+                db.or_(Resource.id.in_([r.id for r in query.all()]),
+                       db.and_(Module.id.in_(registered), Module.publication_status == "published",
+                               Module.is_active.is_(True))),
+            )
         return query
     if current_user.is_lecturer:
         return Resource.query.join(LecturerAssignment).filter(
@@ -70,6 +95,8 @@ def _visible_resource_query():
         return Resource.query.join(Module).join(Semester).join(NtaLevel).join(Programme).filter(
             Programme.department_id == current_user.department_id
         )
+    if current_user.is_admin:
+        return Resource.query
     abort(403)
 
 
@@ -142,6 +169,10 @@ def modules():
     return jsonify(modules=[
         {"id": m.id, "name": m.name, "code": m.code, "semester_id": m.semester_id,
          "module_type": m.module_type, "type_label": m.type_label,
+         "credits": m.credits_label,
+         "prerequisites": [{"id": p.id, "code": p.code, "name": p.name} for p in m.prerequisites],
+         "curriculum_version": m.curriculum_version.label if m.curriculum_version else None,
+         "provenance": m.provenance,
          "academic_year": m.academic_year.label if m.academic_year else None,
          "publication_status": m.publication_status,
          "resource_count": sum(
@@ -153,10 +184,25 @@ def modules():
 
 
 def _resource_summary(r):
+    module = r.module
+    level = module.semester.nta_level
     return {
         "id": r.id,
         "title": r.title,
         "description": r.description,
+        "learning_objectives": r.learning_objectives,
+        "lecturer_remarks": r.lecturer_remarks,
+        "topic": r.topic.title if r.topic else None,
+        "curriculum": {
+            "department": level.programme.department.name,
+            "programme": level.programme.name,
+            "nta_level": level.level_number,
+            "year_label": level.year_label,
+            "semester": module.semester.semester_number,
+            "module": module.name,
+            "module_code": module.code,
+            "academic_year": module.academic_year.label if module.academic_year else None,
+        },
         "resource_type": r.resource_type,
         "type_label": r.type_label,
         "module_id": r.module_id,
@@ -246,3 +292,73 @@ def ai_ask():
         prospectus_sources=result.get("prospectus_sources", []),
         sources=[{"id": r.id, "title": r.title, "type": r.type_label} for r in result["sources"]],
     )
+
+
+@api_bp.route("/me/academic-context")
+@login_required
+def my_academic_context():
+    """The signed-in student's curriculum position and where it came from."""
+    if not current_user.is_student:
+        return jsonify(ok=False, error="Academic context is available for student accounts."), 403
+    import academic_context
+    ctx = academic_context.describe_context(current_user)
+    return jsonify(
+        ok=True,
+        department=ctx["department"].name if ctx["department"] else None,
+        programme=ctx["programme"].name if ctx["programme"] else None,
+        nta_level=ctx["level"].level_number if ctx["level"] else None,
+        year_label=ctx["level"].year_label if ctx["level"] else None,
+        semester=ctx["semester"].semester_number if ctx["semester"] else None,
+        academic_year=ctx["academic_year"].label if ctx["academic_year"] else None,
+        source=ctx["source"],
+        missing=ctx["missing"],
+        modules_from_registration=ctx["modules_from_registration"],
+        modules=[{"id": m.id, "code": m.code, "name": m.name} for m in ctx["modules"]],
+    )
+
+
+@api_bp.route("/me/recommendations")
+@login_required
+def my_recommendations():
+    if not current_user.is_student:
+        return jsonify(ok=False, error="Recommendations are available for student accounts."), 403
+    import recommendations
+    items = recommendations.curriculum_recommendations(current_user)
+    return jsonify(ok=True, note=recommendations.EVIDENCE_NOTE, recommendations=recommendations.to_json(items))
+
+
+@api_bp.route("/curriculum/versions")
+@login_required
+def curriculum_versions():
+    """Administrators and HODs see every version; others see published ones only."""
+    query = CurriculumVersion.query.order_by(CurriculumVersion.created_at.desc())
+    if not (current_user.is_admin or current_user.is_department_head):
+        query = query.filter(CurriculumVersion.status == "published")
+    return jsonify(versions=[{
+        "id": v.id, "label": v.label, "academic_year": v.academic_year_label,
+        "status": v.status, "is_demo": v.is_demo,
+        "published_at": v.published_at.isoformat() if v.published_at else None,
+        "modules": Module.query.filter_by(curriculum_version_id=v.id).count(),
+    } for v in query.all()])
+
+
+@api_bp.route("/curriculum/versions/<int:version_id>")
+@login_required
+def curriculum_version_detail(version_id):
+    version = db.get_or_404(CurriculumVersion, version_id)
+    privileged = current_user.is_admin or current_user.is_department_head
+    if not privileged and version.status != "published":
+        abort(404)
+    payload = {
+        "id": version.id, "label": version.label, "academic_year": version.academic_year_label,
+        "status": version.status, "is_demo": version.is_demo,
+    }
+    if current_user.is_admin:
+        payload["entries"] = [{
+            "id": e.id, "programme": e.programme.name if e.programme else None,
+            "department": e.programme.department_name if e.programme else None,
+            "nta_level": e.nta_level, "semester": e.semester_number, "module_code": e.module_code,
+            "module_name": e.module_name, "credits": str(e.credits) if e.credits is not None else None,
+            "prerequisites": e.prerequisite_list, "review_status": e.review_status, "origin": e.origin,
+        } for e in version.entries]
+    return jsonify(version=payload)

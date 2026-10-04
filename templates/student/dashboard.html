@@ -9,7 +9,7 @@
     <p>Pick up where you left off, protect your focus, and turn every study session into progress.</p>
     <div class="context-pills">
       {% if current_user.programme %}<span class="context-pill">{{ icons.icon('bookmark', size=13) }} {{ current_user.programme.name }}</span>{% endif %}
-      {% if current_user.nta_level %}<span class="context-pill">{{ icons.icon('layers', size=13) }} {{ current_user.nta_level.label }}</span>{% endif %}
+      {% if current_user.nta_level %}<span class="context-pill">{{ icons.icon('layers', size=13) }} {{ current_user.nta_level.display_label }}</span>{% endif %}
       {% if current_user.semester %}<span class="context-pill">{{ icons.icon('folder', size=13) }} {{ current_user.semester.label }}</span>{% endif %}
     </div>
     <div class="hero-actions">
@@ -18,6 +18,29 @@
       <button type="button" class="btn btn-ghost btn-lg" data-open-palette>{{ icons.icon('search', size=18) }} Search <kbd>Ctrl K</kbd></button>
     </div>
   </div>
+
+  <section class="dashboard-grid dashboard-grid--priority" aria-label="Your curriculum">
+    <article class="card card-pad curriculum-card">
+      <div class="section-header"><div><span class="section-kicker">Current curriculum</span><h2>{{ icons.icon('layers', size=18) }} Your modules</h2></div><span class="badge badge-neutral" title="Where this academic context came from">{{ curriculum.source_label }}</span></div>
+      {% if not curriculum.is_complete %}<div class="notice notice--warning" role="note">Your {{ curriculum.missing|join(', ') }} {{ 'is' if curriculum.missing|length == 1 else 'are' }} not recorded yet. Ask your department or curriculum administrator to update your academic context.</div>{% endif %}
+      <p class="text-muted text-small">{{ curriculum.academic_year.label if curriculum.academic_year else 'Academic year not set' }}{% if curriculum.curriculum_versions %} · {{ curriculum.curriculum_versions|join(', ') }}{% endif %} · {{ 'Registered modules' if curriculum.modules_from_registration else 'Modules in your current semester' }}</p>
+      {% for module in curriculum.modules %}
+      <a class="mini-resource" href="{{ url_for('student.module_resources', module_id=module.id) }}"><span class="mini-resource__icon">{{ icons.icon('book-open', size=16) }}</span><div><div class="mini-resource__title">{{ module.name }}</div><div class="mini-resource__meta">{{ module.code or 'Code pending' }} · {{ module.type_label }}{% if module.credits_label %} · {{ module.credits_label }} credits{% endif %} · {{ module_resource_counts.get(module.id, 0) }} lecturer resource{{ '' if module_resource_counts.get(module.id, 0) == 1 else 's' }}</div></div>{{ icons.icon('arrow-right', size=15) }}</a>
+      {% else %}<div class="empty-state empty-state--compact"><p>No modules are linked to your academic context yet.</p></div>{% endfor %}
+      {% if curriculum.includes_legacy_modules %}<p class="form-hint">Some module records have not yet been verified against the official DIT prospectus.</p>{% endif %}
+    </article>
+    <article class="card card-pad">
+      <div class="section-header"><div><span class="section-kicker">Academic fitness</span><h2>{{ icons.icon('bar-chart', size=18) }} Study recommendations</h2></div></div>
+      {% for item in curriculum_recommendations %}
+      <div class="recommendation">
+        <p>{{ item.message }}</p>
+        <details><summary>Why this?</summary><ul class="text-small"><li>{{ item.evidence.module_actions }} study action(s) in this module over {{ item.evidence.window_days }} days</li><li>Average across your other modules: {{ item.evidence.average_other_modules }}</li><li>Questions asked: {{ item.evidence.questions_asked }}</li><li>{{ item.evidence.verified_resources }} verified lecturer resource(s) available</li><li>Compared across your {{ item.evidence.curriculum_basis }}</li></ul></details>
+        <a class="btn btn-secondary btn-sm" href="{{ url_for('student.module_resources', module_id=item.module.id) }}">Open {{ item.module.code or item.module.name }}</a>
+      </div>
+      {% else %}<div class="empty-state empty-state--compact"><p>Your study activity is balanced across your current modules. Keep going.</p></div>{% endfor %}
+      <p class="form-hint">{{ recommendation_note }}</p>
+    </article>
+  </section>
 
   <section class="dashboard-stat-grid" aria-label="Your learning activity">
     <article class="card dashboard-stat"><span class="dashboard-stat__icon">{{ icons.icon('eye', size=18) }}</span><div><strong>{{ dashboard_metrics.resources_viewed }}</strong><span>Resources viewed</span></div></article>

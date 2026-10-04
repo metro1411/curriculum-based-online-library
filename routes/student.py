@@ -170,8 +170,18 @@ def dashboard():
         "ai_questions": academic_questions,
     }
 
+    import recommendations
+    curriculum = academic_context.describe_context(current_user)
+    module_resource_counts = {
+        module.id: sum(1 for resource in module.resources if resource.is_verified)
+        for module in curriculum["modules"]
+    }
     return render_template(
         "student/dashboard.html",
+        curriculum=curriculum,
+        module_resource_counts=module_resource_counts,
+        curriculum_recommendations=recommendations.curriculum_recommendations(current_user),
+        recommendation_note=recommendations.EVIDENCE_NOTE,
         latest_announcements=announcements.for_modules(
             [module.id for module in _accessible_semester_modules()], limit=3
         ),
