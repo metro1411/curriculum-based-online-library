@@ -18,6 +18,8 @@ A learning workspace for DIT. The prospectus decides the curriculum, lecturers p
 4. Any problem publishes nothing and shows the HOD what to fix.
 5. The latest publish can be undone.
 
+The DIT Prospectus 2025/2026 ships in `bundled_prospectus/` and is published automatically on first start (1,501 modules in 32 programmes). It is loaded once: an undone or replaced prospectus is never reloaded. `flask load-prospectus` does the same by hand.
+
 Details: [docs/CURRICULUM_ARCHITECTURE.md](docs/CURRICULUM_ARCHITECTURE.md).
 
 ## DIT AI
@@ -48,6 +50,7 @@ Create the HOD from **Create account** with a `5000…` staff number and `HOD_AC
 | `SECRET_KEY`, `DATABASE_URL` | Required in production |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Private file storage in production |
 | `HOD_ACTIVATION_CODE` | Activates HOD accounts (16+ characters) |
+| `LOAD_BUNDLED_PROSPECTUS` | `1` (default) publishes `bundled_prospectus/` on first start; `0` skips it |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | DIT AI (default model `gemini-3.5-flash`) |
 | `GEMINI_ENABLE_WEB_GROUNDING` | `1` allows labelled Google Search help when no DIT source matches |
 | `SMTP_*`, `MAIL_FROM`, `PUBLIC_BASE_URL` | Optional email notifications |

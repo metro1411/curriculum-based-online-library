@@ -283,6 +283,17 @@ credits, prerequisites, progression, examinations, fees or other DIT regulations
 from them and say they come from the DIT prospectus. If the prospectus content provided does \
 not cover the question, say so and suggest asking the department; never fill the gap.
 
+Format answers about DIT programmes and rules for quick reading, not as a lesson (skip the \
+concept overview and practice questions):
+- Start with the direct answer in one or two sentences.
+- For modules, use one heading per NTA level and semester (for example **NTA Level 6 · Ordinary \
+Diploma · Semester I**) followed by a table with the columns Code | Module | Credits | Type, then \
+the total credits when they are listed.
+- For rules, use short bullets in plain language and name the regulation number printed in the \
+excerpt, for example (Examination Regulations 9.1). Quote exact figures such as marks, \
+percentages, dates and fees as printed.
+- End with one line on what the student should do next if a decision or approval is involved.
+
 Never claim to represent official DIT policy, official curriculum, or official approval \
 unless that is explicitly present in the retrieved context.
 
@@ -1072,14 +1083,29 @@ def ask(*, mode, question, module=None, resource=None, history=None, student=Non
             {"module_id": item["module"].id, "name": item["module"].name, "code": item["module"].code}
             for item in retrieved.get("curriculum_matches") or []
         ],
-        "prospectus_sources": [
-            {"title": item["title"]} for item in retrieved.get("prospectus_matches") or []
-        ],
+        "prospectus_sources": prospectus_source_labels(retrieved.get("prospectus_matches") or []),
         "retrieval_error": retrieved.get("retrieval_error", False),
     }
 
 
-def sources_to_json(sources, web_sources=None):
+def prospectus_source_labels(matches):
+    """Where each prospectus passage sits, e.g. "Examination Regulations › 9.0 Absence from Examination"."""
+    labels = []
+    for item in matches:
+        heading = item["text"].split("\n", 1)[0]
+        place = heading[1:-1] if heading.startswith("[") and heading.endswith("]") else ""
+        place = re.sub(r"^Chapter [A-Za-z]+:\s*", "", place)
+        label = {"title": place or item["title"]}
+        if label not in labels:
+            labels.append(label)
+    return labels
+
+
+def prospectus_sources_from_json(raw):
+    return [item for item in sources_from_json(raw) if isinstance(item, dict) and item.get("kind") == "prospectus"]
+
+
+def sources_to_json(sources, web_sources=None, prospectus_sources=None):
     archive_sources = [
         {"kind": "archive", "id": r.id, "title": r.title, "type": r.type_label, "verified": r.is_verified}
         for r in sources
@@ -1089,7 +1115,8 @@ def sources_to_json(sources, web_sources=None):
         for item in (web_sources or [])
         if item.get("title") and item.get("url")
     ]
-    return json.dumps(archive_sources + supplementary_sources)
+    prospectus = [{"kind": "prospectus", "title": item["title"]} for item in (prospectus_sources or [])]
+    return json.dumps(archive_sources + supplementary_sources + prospectus)
 
 
 def sources_from_json(raw):

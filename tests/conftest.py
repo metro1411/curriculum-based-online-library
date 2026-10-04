@@ -31,6 +31,7 @@ os.environ.update({
     "SUPABASE_URL": "",
     "SUPABASE_SERVICE_ROLE_KEY": "",
     "HOD_ACTIVATION_CODE": "isolated-test-hod-code",
+    "LOAD_BUNDLED_PROSPECTUS": "0",
     "SMTP_HOST": "",
     "SMTP_USERNAME": "",
     "SMTP_PASSWORD": "",

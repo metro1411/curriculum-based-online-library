@@ -61,7 +61,24 @@ def run():
     _seed_control_workspace(modules_by_name["Control Engineering"], lecturer)
     _seed_foundation_resources(modules_by_name, lecturer)
     db.session.commit()
+    if current_app.config["LOAD_BUNDLED_PROSPECTUS"]:
+        _load_bundled_prospectus()
     logger.info("Learning data check complete.")
+
+
+def _load_bundled_prospectus():
+    """Publish the prospectus shipped in bundled_prospectus on first start."""
+    from curriculum_service import load_bundled_prospectus
+
+    version = load_bundled_prospectus()
+    if version is None:
+        return
+    db.session.commit()
+    if version.status == "published":
+        logger.info("Published the bundled prospectus: %s modules.", len(version.entries))
+    else:
+        logger.warning("The bundled prospectus was stopped: %s",
+                       "; ".join(issue["message"] for issue in version.validation_errors[:5]))
 
 
 # ---------------------------------------------------------------------------

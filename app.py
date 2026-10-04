@@ -344,6 +344,18 @@ def _register_security_headers(app):
 
 
 def _register_commands(app):
+    @app.cli.command("load-prospectus")
+    def load_prospectus():
+        """Publish the prospectus in bundled_prospectus if it has never been loaded."""
+        from curriculum_service import load_bundled_prospectus
+
+        version = load_bundled_prospectus()
+        db.session.commit()
+        if version is None:
+            print("Nothing to load: no file in bundled_prospectus, or it was loaded before.")
+        else:
+            print(f"{version.status_label}: {version.label} ({len(version.entries)} modules).")
+
     @app.cli.command("send-study-reminders")
     def send_study_reminders():
         """Send one privacy-safe goal reminder at the selected cadence."""

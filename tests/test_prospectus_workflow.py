@@ -151,6 +151,7 @@ def test_result_page_shows_the_report(app, hod, seeded_paths, live_restored):
     version = _version(app, title)
     page = hod.get(f"/department/prospectus/{version.id}")
     assert page.status_code == 200 and b"Carried over" in page.data
+    assert b"What went live" in page.data and p["programme"].encode() in page.data
     assert hod.get("/department/curriculum").data.count(b"DEMO Kept Module") == 1
 
 
@@ -434,3 +435,31 @@ def test_docx_tables_keep_their_rows_and_place(tmp_path):
     path = tmp_path / "demo.docx"
     document.save(path)
     assert extract_text(str(path), "docx") == "Semester I\nDMO 04111 DEMO Drawing 6\nSemester II"
+
+
+def test_bundled_prospectus_loads_once(app, hod, tmp_path, live_restored):
+    (tmp_path / "dit_prospectus_2031_2032.txt").write_text(DIT_LAYOUT, encoding="utf-8")
+    with app.app_context():
+        version = svc.load_bundled_prospectus(str(tmp_path))
+        db.session.commit()
+        assert version.status == "published" and version.academic_year_label == "2031/2032"
+        assert version.label.startswith("DIT Prospectus · 2031/2032")
+        version_id = version.id
+        assert svc.load_bundled_prospectus(str(tmp_path)) is None
+        svc.undo_last_publish(user=None)
+        db.session.commit()
+        assert svc.load_bundled_prospectus(str(tmp_path)) is None, "an undone prospectus is never reloaded"
+    page = hod.get(f"/department/prospectus/{version_id}")
+    assert b"Notes from the read" in page.data and b"Programmes not read" in page.data
+    assert b"NTA 7 \xc2\xb7 Higher Diploma" in page.data
+
+
+def test_shipped_prospectus_is_the_one_the_reader_was_tuned_on():
+    import os
+    names = os.listdir(svc.BUNDLED_PROSPECTUS_DIR)
+    assert "dit_prospectus_2025_2026.txt" in names
+    with open(os.path.join(svc.BUNDLED_PROSPECTUS_DIR, "dit_prospectus_2025_2026.txt"), encoding="utf-8") as handle:
+        rows, notes = svc.extract_prospectus(handle.read())
+    assert len(rows) > 1400
+    assert {row["department"] for row in rows} >= {"Civil Engineering", "Computer Studies", "Mwanza Campus"}
+    assert all(row["nta_level"] and row["semester"] for row in rows)

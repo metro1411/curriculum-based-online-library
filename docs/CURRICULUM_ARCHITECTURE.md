@@ -38,6 +38,8 @@ upload → read → check → swap (one transaction) → live
    - departments, programmes, levels and semesters with no live modules are hidden, never deleted.
 5. **Result.** `/department/prospectus/<id>` shows each module's outcome, students who need placing, hidden departments, and notes from the read: codes printed more than once in a programme with different titles, and skipped programmes. Notes never stop a publish; they point at lines DIT may want to correct in the prospectus. A stopped upload shows its problems instead.
 
+**Shipped prospectus.** `bundled_prospectus/dit_prospectus_2025_2026.txt` (the text of the DIT Prospectus 2025/2026) is published on first start by `load_bundled_prospectus`, with the academic year taken from the file name. A file whose SHA-256 was ever loaded is never loaded again, so an HOD's undo or a newer upload sticks. Set `LOAD_BUNDLED_PROSPECTUS=0` to skip it; `flask load-prospectus` runs it by hand.
+
 Every live change is recorded in the version's undo journal. **Undo** (`undo_last_publish`) reverses the latest publish exactly and brings back the version it replaced. Undo is refused once lecturers have added resources, topics or claims to the new modules. All steps are audited (`prospectus.uploaded`, `prospectus.published`, `prospectus.stopped`, `prospectus.undone`).
 
 Version statuses: `published` (live), `archived` (replaced), `failed` (stopped), `undone`.
@@ -78,7 +80,7 @@ The former Curriculum Administrator role is retired. Start-up migration turns ex
 4. Other approved resources in the student's current modules.
 5. General knowledge, optionally web-grounded, always labelled.
 
-The system prompt treats the live prospectus as the official source for modules and DIT rules, and tells the model to say so when the prospectus does not cover a question.
+The system prompt treats the live prospectus as the official source for modules and DIT rules, and tells the model to say so when the prospectus does not cover a question. Prospectus answers are formatted for quick reading: a direct answer, module tables per level and semester (Code | Module | Credits | Type), rules as bullets naming the regulation number. The sections used are listed under the answer as *From the DIT prospectus* chips, and saved with the message.
 
 Each answer is labelled and the label is stored on `AIMessage`:
 

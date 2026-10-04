@@ -306,8 +306,11 @@ def prospectus():
 @department_bp.route("/prospectus/<int:version_id>")
 def prospectus_result(version_id):
     version = db.get_or_404(CurriculumVersion, version_id)
+    report = version.allocation_report
+    changes = [item for item in report.get("modules", []) if item["outcome"] != "new"]
     return render_template("department/prospectus_result.html", department=_department(),
-                           version=version, report=version.allocation_report)
+                           version=version, report=report, changes=changes,
+                           outline=svc.version_outline(version), notes=svc.grouped_notes(version))
 
 
 @department_bp.route("/prospectus/undo", methods=["POST"])

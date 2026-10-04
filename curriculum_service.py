@@ -506,8 +506,8 @@ class ValidationReport:
     def error(self, message, entry=None):
         self.errors.append(_issue(message, entry))
 
-    def warn(self, message, entry=None):
-        self.warnings.append(_issue(message, entry))
+    def warn(self, message, entry=None, kind="other"):
+        self.warnings.append({**_issue(message, entry), "kind": kind})
 
     def to_json(self):
         return json.dumps({"errors": self.errors, "warnings": self.warnings})
@@ -561,14 +561,14 @@ def validate_version(version):
         if entry.credits is not None and not (Decimal("0") <= entry.credits <= Decimal("100")):
             report.error(f"{label}: credits must be between 0 and 100.", entry)
         if entry.credits is None:
-            report.warn(f"{label}: credits not recorded.", entry)
+            report.warn(f"{label}: credits not recorded.", entry, kind="credits")
 
         if entry.programme_id and entry.module_code:
             key = (entry.programme_id, entry.module_code.upper())
             first = seen_codes.setdefault(key, entry)
             if first is not entry:
                 report.warn(f"{label} is printed more than once in {programme.name} "
-                            f"(“{first.module_name}” and “{entry.module_name}”).", entry)
+                            f"(“{first.module_name}” and “{entry.module_name}”).", entry, kind="duplicate")
             codes_in_version.add(entry.module_code.upper())
 
     graph = {}
@@ -588,6 +588,47 @@ def validate_version(version):
     if cycle:
         report.error("Prerequisites form a loop: " + " → ".join(cycle) + ".")
     return report
+
+
+NOTE_GROUPS = (
+    ("duplicate", "Codes printed more than once with different titles"),
+    ("skipped", "Programmes not read"),
+    ("credits", "Modules printed without credits"),
+    ("other", "Other notes"),
+)
+
+
+def version_outline(version):
+    """What a version contains: departments → programmes → levels, with module and credit totals."""
+    departments = {}
+    for entry in version.entries:
+        draft = entry.programme
+        if draft is None:
+            continue
+        department = departments.setdefault(draft.department_name, {"name": draft.department_name,
+                                                                    "programmes": {}, "modules": 0})
+        programme = department["programmes"].setdefault(draft.name, {"name": draft.name, "levels": {},
+                                                                     "modules": 0})
+        level = programme["levels"].setdefault(entry.nta_level, {
+            "number": entry.nta_level, "award": draft.year_label_map.get(entry.nta_level), "modules": 0})
+        for row in (department, programme, level):
+            row["modules"] += 1
+    outline = []
+    for department in departments.values():
+        programmes = []
+        for programme in department["programmes"].values():
+            levels = sorted(programme["levels"].values(), key=lambda level: level["number"] or 0)
+            programmes.append({**programme, "levels": levels})
+        outline.append({**department, "programmes": programmes})
+    return outline
+
+
+def grouped_notes(version):
+    """The version's warnings grouped for display: [(title, [issue, ...]), ...]."""
+    groups = {key: [] for key, _ in NOTE_GROUPS}
+    for issue in version.validation_warnings:
+        groups.get(issue.get("kind"), groups["other"]).append(issue)
+    return [(title, groups[key]) for key, title in NOTE_GROUPS if groups[key]]
 
 
 def _find_cycle(graph):
@@ -685,7 +726,7 @@ def publish_upload(file_storage, *, title, academic_year_label, user, allow_larg
         for problem in problems:
             report.error(problem)
         for note in notes:
-            report.warn(note)
+            report.warn(note, kind="skipped")
 
     if report.ok and not allow_large_change:
         old = _live_modules()
@@ -703,6 +744,41 @@ def publish_upload(file_storage, *, title, academic_year_label, user, allow_larg
         return version
     _swap(version, user)
     return version
+
+
+BUNDLED_PROSPECTUS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bundled_prospectus")
+_BUNDLED_NAME_RE = re.compile(r"(\d{4})_(\d{4})\.(?:txt|pdf|docx|csv)$", re.I)
+
+
+def load_bundled_prospectus(directory=BUNDLED_PROSPECTUS_DIR):
+    """Publish the prospectus shipped in ``bundled_prospectus`` if it has never been loaded.
+
+    The newest file named like ``dit_prospectus_2025_2026.txt`` is used; the
+    academic year comes from its name. A file that was ever loaded (even if a
+    HOD later undid or replaced it) is never loaded again. Returns the new
+    version, or None when there is nothing to do.
+    """
+    from werkzeug.datastructures import FileStorage
+
+    if not os.path.isdir(directory):
+        return None
+    candidates = sorted((name for name in os.listdir(directory) if _BUNDLED_NAME_RE.search(name)),
+                        key=lambda name: _BUNDLED_NAME_RE.search(name).groups())
+    if not candidates:
+        return None
+    name = candidates[-1]
+    with open(os.path.join(directory, name), "rb") as handle:
+        raw = handle.read()
+    digest = hashlib.sha256(raw).hexdigest()
+    loaded = (db.session.query(CurriculumVersion.id)
+              .join(ProspectusDocument, CurriculumVersion.prospectus_document_id == ProspectusDocument.id)
+              .filter(ProspectusDocument.sha256 == digest).first())
+    if loaded:
+        return None
+    start, end = _BUNDLED_NAME_RE.search(name).groups()
+    year = f"{start}/{end}"
+    return publish_upload(FileStorage(io.BytesIO(raw), filename=name), title="DIT Prospectus",
+                          academic_year_label=year, user=None, allow_large_change=True)
 
 
 def _live_modules():

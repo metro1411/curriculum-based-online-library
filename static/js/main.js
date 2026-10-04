@@ -621,10 +621,16 @@
         badge.textContent = context.text;
         body.appendChild(badge);
       }
-      if (generalGuidance && label !== "outside_curriculum") {
+      if (generalGuidance && label !== "outside_curriculum" && label !== "dit_curriculum") {
         var notice = document.createElement("div"); notice.className = "general-guidance-note";
         notice.innerHTML = "<strong>General guidance</strong><span>No directly relevant approved lecturer resource was found for this question. This answer uses general academic knowledge" + ((webSources && webSources.length) ? " supported by supplementary web research" : "") + "; confirm critical course details with your lecturer.</span>";
         body.appendChild(notice);
+      }
+      var prospectus = (context && Array.isArray(context.prospectus)) ? context.prospectus : [];
+      if (prospectus.length) {
+        var pWrap = document.createElement("div"); pWrap.className = "chat-sources chat-sources--prospectus"; pWrap.innerHTML = "<span>From the DIT prospectus</span>";
+        prospectus.forEach(function (source) { var chip = document.createElement("span"); chip.className = "prospectus-chip"; chip.textContent = source.title; pWrap.appendChild(chip); });
+        body.appendChild(pWrap);
       }
       if (sources && sources.length) {
         var wrap = document.createElement("div"); wrap.className = "chat-sources"; wrap.innerHTML = "<span>Verified lecturer resources used</span>";
@@ -665,7 +671,7 @@
           typing.remove();
           if (!result.ok) { createAssistantTurn("<p>" + escapeHtml(result.data.error || "I could not complete that response.") + "</p>", "", [], [], false); return; }
           var wasNew = !state.conversationId; state.conversationId = result.data.conversation_id;
-          createAssistantTurn(result.data.answer_html, result.data.message_id, result.data.sources, result.data.web_sources, result.data.general_guidance, { label: result.data.context_label, text: result.data.context_label_text });
+          createAssistantTurn(result.data.answer_html, result.data.message_id, result.data.sources, result.data.web_sources, result.data.general_guidance, { label: result.data.context_label, text: result.data.context_label_text, prospectus: result.data.prospectus_sources });
           setFollowups(result.data.followups);
           if (wasNew) { addConversation(state.conversationId, result.data.conversation_title); if (title) title.textContent = result.data.conversation_title; }
         })
@@ -718,7 +724,7 @@
           typing.remove(); if (!result.ok) { window.showToast(result.data.error || "Unable to regenerate the answer.", "error"); return; }
           var body = turn.querySelector(".chat-turn__body"); body.querySelector(".chat-bubble--assistant").innerHTML = result.data.answer_html;
           turn.dataset.messageId = result.data.message_id; body.querySelector(".ai-feedback").outerHTML = feedbackControls(result.data.message_id);
-          body.querySelectorAll(".chat-sources, .general-guidance-note, [data-context-label]").forEach(function (node) { node.remove(); }); appendMeta(body, result.data.sources, result.data.web_sources, result.data.general_guidance, { label: result.data.context_label, text: result.data.context_label_text }); decorateCodeBlocks(turn); setFollowups(result.data.followups); scrollToBottom();
+          body.querySelectorAll(".chat-sources, .general-guidance-note, [data-context-label]").forEach(function (node) { node.remove(); }); appendMeta(body, result.data.sources, result.data.web_sources, result.data.general_guidance, { label: result.data.context_label, text: result.data.context_label_text, prospectus: result.data.prospectus_sources }); decorateCodeBlocks(turn); setFollowups(result.data.followups); scrollToBottom();
         })
         .catch(function (error) { typing.remove(); window.showToast(error.message, "error"); })
         .finally(function () { setGenerating(false); });

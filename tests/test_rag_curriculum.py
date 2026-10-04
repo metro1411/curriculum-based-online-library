@@ -257,6 +257,11 @@ def test_rule_questions_find_the_regulation_by_its_heading(app, seeded):
         tokens = ai_engine._tokenize("What happens if I miss an end of semester examination?")
         matches = curriculum_context.retrieve_prospectus(tokens, None, ai_engine._tokenize)
         assert "9.0 Absence from Examination" in matches[0]["text"]
+        labels = ai_engine.prospectus_source_labels(matches)
+        assert labels[0] == {"title": "Examination Regulations › 9.0 Absence from Examination"}
+        saved = ai_engine.sources_to_json([], [], labels)
+        assert ai_engine.prospectus_sources_from_json(saved)[0]["title"] == labels[0]["title"]
+        assert ai_engine.split_sources(saved) == ([], [])
         db.session.rollback()
 
 
