@@ -160,3 +160,50 @@ def test_module_workspace_quick_announcement_uses_the_same_rules(app, lecturer, 
 def test_question_form_preselects_module_from_announcement(student, seeded):
     html = student.get(f"/questions?module_id={seeded['teaching_module_id']}").get_data(as_text=True)
     assert f'value="{seeded["teaching_module_id"]}" selected' in html
+
+
+def test_registered_lecturer_can_announce_after_claim_approval(app, hod, register_lecturer, new_student, hod_module_id):
+    """The path a real staff member follows: register, get verified, claim a
+    module, wait for the HOD, then message the class."""
+    from conftest import sign_in, user_id
+    from models import LecturerAssignment
+
+    number, password = register_lecturer()
+    lecturer_id = user_id(app, number)
+    assert hod.post(f"/department/lecturer-requests/{lecturer_id}/approve").status_code == 302
+    lecturer = sign_in(app.test_client(), number, password)
+
+    assert lecturer.post("/lecturer/workspace", data={"action": "claim", "module_id": hod_module_id}).status_code == 302
+    pending_page = lecturer.get("/lecturer/announcements").get_data(as_text=True)
+    assert "waiting for Head of Department approval" in pending_page
+    title, _ = _send(lecturer, hod_module_id)
+    with app.app_context():
+        assert Announcement.query.filter_by(title=title).count() == 0  # not yet allowed
+        claim_id = LecturerAssignment.query.filter_by(lecturer_id=lecturer_id, module_id=hod_module_id).one().id
+
+    assert hod.post(f"/department/module-claims/{claim_id}/approve").status_code == 302
+    ready_page = lecturer.get("/lecturer/announcements").get_data(as_text=True)
+    assert f'value="{hod_module_id}" data-reach=' in ready_page
+    assert "waiting for Head of Department approval" not in ready_page
+
+    title, response = _send(lecturer, hod_module_id, body="Welcome to the module. Our first lab is on Monday.")
+    assert response.status_code == 302
+    with app.app_context():
+        item = Announcement.query.filter_by(title=title).one()
+        assert item.author_id == lecturer_id and item.recipient_count >= 2
+    page = new_student.get("/announcements").get_data(as_text=True)
+    assert title in page and "Welcome to the module" in page
+
+
+def test_unpublished_module_is_explained_not_silently_hidden(app, hod, approved_lecturer, hod_module_id):
+    from models import LecturerAssignment
+    with app.app_context():
+        db.session.add(LecturerAssignment(lecturer_id=approved_lecturer.user_id, module_id=hod_module_id, status="approved"))
+        module = db.session.get(Module, hod_module_id)
+        module.publication_status = "draft"
+        db.session.commit()
+    page = approved_lecturer.get("/lecturer/announcements").get_data(as_text=True)
+    assert "not published yet" in page
+    title, _ = _send(approved_lecturer, hod_module_id)
+    with app.app_context():
+        assert Announcement.query.filter_by(title=title).count() == 0

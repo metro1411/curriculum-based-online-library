@@ -33,7 +33,7 @@ def _department_id(module):
     return module.semester.nta_level.programme.department_id
 
 
-def module_audience(module):
+def _audience_query(module):
     """Active students who can open this module.
 
     Mirrors the student access rule in routes/student.py: same semester and
@@ -51,7 +51,37 @@ def module_audience(module):
             User.academic_year_id.is_(None),
             User.academic_year_id == module.academic_year_id,
         ))
-    return query.all()
+    return query
+
+
+def module_audience(module):
+    return _audience_query(module).all()
+
+
+def audience_count(module):
+    return _audience_query(module).count()
+
+
+def lecturer_channels(lecturer):
+    """Modules this lecturer can announce to, and plain reasons for the rest.
+
+    Returns ``(sendable, blocked)``: ``sendable`` is a list of
+    ``{"module", "reach"}`` dicts; ``blocked`` is a list of ``(module, reason)``
+    so the page can explain exactly what the Head of Department must do.
+    """
+    sendable, blocked = [], []
+    assignments = LecturerAssignment.query.filter_by(lecturer_id=lecturer.id).all()
+    for assignment in sorted(assignments, key=lambda item: (item.module.code or item.module.name)):
+        module = assignment.module
+        if assignment.status == "pending":
+            blocked.append((module, "Your claim is waiting for Head of Department approval."))
+        elif assignment.status != "approved":
+            continue
+        elif not module.is_published:
+            blocked.append((module, "This module is not published yet. Ask your Head of Department to publish it."))
+        else:
+            sendable.append({"module": module, "reach": audience_count(module)})
+    return sendable, blocked
 
 
 def lecturer_can_post(lecturer, module):

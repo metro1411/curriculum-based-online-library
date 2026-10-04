@@ -642,7 +642,8 @@ def _publish_announcement_from_form(module):
 
 @lecturer_bp.route("/announcements", methods=["GET", "POST"])
 def announcements_page():
-    modules = [module for module in _all_modules_for_filters() if module.is_published]
+    channels, blocked = announcements.lecturer_channels(current_user)
+    modules = [channel["module"] for channel in channels]
     module_ids = [module.id for module in modules]
     if request.method == "POST":
         module_id = request.form.get("module_id", type=int)
@@ -656,6 +657,8 @@ def announcements_page():
     shown_ids = [selected_module_id] if selected_module_id in module_ids else module_ids
     return render_template(
         "lecturer/announcements.html",
+        channels=channels,
+        blocked=blocked,
         modules=modules,
         selected_module_id=selected_module_id if selected_module_id in module_ids else None,
         announcements=announcements.for_modules(shown_ids),

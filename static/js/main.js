@@ -131,6 +131,23 @@
     });
   }
 
+  // Announcement composer: say how many students the chosen module reaches.
+  function initReachHint() {
+    var select = document.querySelector("[data-reach-select]");
+    var hint = document.querySelector("[data-reach-hint]");
+    if (!select || !hint) return;
+    function update() {
+      var option = select.selectedOptions[0];
+      if (!option || !option.value) { hint.textContent = "Choose a module to see how many students it will reach."; return; }
+      var reach = Number(option.dataset.reach || 0);
+      hint.textContent = reach
+        ? "Will reach " + reach + " enrolled student" + (reach === 1 ? "" : "s") + "."
+        : "No students are enrolled yet; it will be waiting for them when they join.";
+    }
+    select.addEventListener("change", update);
+    update();
+  }
+
   function initServiceWorker() {
     if (!("serviceWorker" in navigator)) return;
     window.addEventListener("load", function () {
@@ -832,6 +849,7 @@
     initSubmitGuard();
     initConnectivity();
     initCharCounters();
+    initReachHint();
     initServiceWorker();
     initToasts();
     initConfirmModals();

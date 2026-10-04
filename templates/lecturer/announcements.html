@@ -18,10 +18,11 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
           <label class="form-label" for="announcement-module">Module</label>
-          <select class="form-select" id="announcement-module" name="module_id" required>
-            {% if modules|length > 1 %}<option value="">Choose a module</option>{% endif %}
-            {% for module in modules %}<option value="{{ module.id }}" {{ 'selected' if module.id == selected_module_id }}>{{ module.code or 'Code pending' }} · {{ module.name }}</option>{% endfor %}
+          <select class="form-select" id="announcement-module" name="module_id" required data-reach-select>
+            {% if channels|length > 1 %}<option value="">Choose a module</option>{% endif %}
+            {% for channel in channels %}{% set module = channel.module %}<option value="{{ module.id }}" data-reach="{{ channel.reach }}" {{ 'selected' if module.id == selected_module_id }}>{{ module.code or 'Code pending' }} · {{ module.name }} ({{ channel.reach }} student{{ '' if channel.reach == 1 else 's' }})</option>{% endfor %}
           </select>
+          <p class="form-hint reach-hint" data-reach-hint aria-live="polite">{% if channels|length == 1 %}{% set reach = channels[0].reach %}{% if reach %}Will reach {{ reach }} enrolled student{{ '' if reach == 1 else 's' }}.{% else %}No students are enrolled yet; it will be waiting for them when they join.{% endif %}{% else %}Choose a module to see how many students it will reach.{% endif %}</p>
         </div>
         <div class="form-group">
           <label class="form-label" for="announcement-title">Title</label>
@@ -39,6 +40,14 @@
       </form>
       {% else %}
       <div class="empty-state empty-state--compact"><p>You need an approved, published module before you can send announcements.</p><a class="btn btn-secondary btn-sm" href="{{ url_for('lecturer.workspace') }}">Open module workspace</a></div>
+      {% endif %}
+      {% if blocked %}
+      <div class="channel-status" role="note">
+        <strong>{{ icons.icon('alert-circle', size=15) }} Not available yet</strong>
+        <ul>
+          {% for module, reason in blocked %}<li><span>{{ module.code or 'Code pending' }} · {{ module.name }}</span><small>{{ reason }}</small></li>{% endfor %}
+        </ul>
+      </div>
       {% endif %}
     </section>
 

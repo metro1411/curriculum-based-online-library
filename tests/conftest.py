@@ -48,7 +48,7 @@ config.RESOURCE_UPLOAD_DIR = _UPLOADS.name
 
 from app import app as flask_app  # noqa: E402
 from extensions import db  # noqa: E402
-from models import LecturerAssignment, Resource, User  # noqa: E402
+from models import AcademicYear, LecturerAssignment, Module, Resource, User  # noqa: E402
 
 STUDENT = ("student@dit.ac.tz", "Student@123")
 LECTURER = ("lecturer@dit.ac.tz", "Lecturer@123")
@@ -181,6 +181,26 @@ def approved_lecturer(app, hod, register_lecturer, seeded):
     client.user_id = lecturer_id
     client.credentials = (number, password)
     return client
+
+
+@pytest.fixture
+def hod_module_id(app, hod, seeded):
+    with app.app_context():
+        year = AcademicYear.query.filter_by(department_id=seeded["department_id"], is_current=True).one()
+        year_id = year.id
+        code = f"EE-TEST-{Module.query.count():03d}"
+    response = hod.post("/department/curriculum", data={
+        "action": "module", "academic_year_id": year_id,
+        "programme_id": seeded["programme_id"], "nta_level_id": seeded["level_id"],
+        "semester_id": seeded["semester_id"], "code": code,
+        "name": "Academic Workflow Verification", "module_type": "general_studies",
+        "cohort_label": "EE5-QA", "description": "Isolated test curriculum module.",
+    })
+    assert response.status_code == 302
+    with app.app_context():
+        module = Module.query.filter_by(code=code).one()
+        assert module.module_type == "general_studies" and module.academic_year_id == year_id
+        return module.id
 
 
 def user_id(app, registration_number):

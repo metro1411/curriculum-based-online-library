@@ -53,26 +53,6 @@ def test_hod_approval_activates_lecturer(app, approved_lecturer, seeded):
         ).first()
 
 
-@pytest.fixture
-def hod_module_id(app, hod, seeded):
-    with app.app_context():
-        year = AcademicYear.query.filter_by(department_id=seeded["department_id"], is_current=True).one()
-        year_id = year.id
-        code = f"EE-TEST-{Module.query.count():03d}"
-    response = hod.post("/department/curriculum", data={
-        "action": "module", "academic_year_id": year_id,
-        "programme_id": seeded["programme_id"], "nta_level_id": seeded["level_id"],
-        "semester_id": seeded["semester_id"], "code": code,
-        "name": "Academic Workflow Verification", "module_type": "general_studies",
-        "cohort_label": "EE5-QA", "description": "Isolated test curriculum module.",
-    })
-    assert response.status_code == 302
-    with app.app_context():
-        module = Module.query.filter_by(code=code).one()
-        assert module.module_type == "general_studies" and module.academic_year_id == year_id
-        return module.id
-
-
 def test_hod_module_edit_keeps_it_published(app, hod, hod_module_id):
     assert hod.get(f"/department/curriculum/modules/{hod_module_id}/edit").status_code == 200
     with app.app_context():
