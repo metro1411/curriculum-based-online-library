@@ -109,10 +109,12 @@
 
       <div class="ai-followups" data-followups hidden><span>Continue learning</span><div data-followup-list></div></div>
       <form class="chat-input-row" data-chat-form>
-        <textarea class="form-textarea" data-chat-input rows="1" placeholder="Message DIT AI…" required></textarea>
-        <div class="chat-composer__footer"><span>Enter to send · Shift + Enter for a new line</span><button type="submit" class="btn btn-primary btn-icon" data-chat-send aria-label="Send message">{{ icons.icon('send', size=18) }}</button></div>
+        <div class="chat-attachment" data-chat-attachment hidden>{{ icons.icon('paperclip', size=14) }}<span data-chat-attachment-name></span><button type="button" data-chat-attachment-clear aria-label="Remove attachment">×</button></div>
+        <textarea class="form-textarea" data-chat-input rows="1" placeholder="Message DIT AI…"></textarea>
+        <input type="file" data-chat-attach accept="image/png,image/jpeg,image/webp,application/pdf" hidden>
+        <div class="chat-composer__footer"><span>Enter to send · Shift + Enter for a new line</span><div class="chat-composer__actions"><button type="button" class="btn btn-ghost btn-icon" data-chat-attach-button aria-label="Attach an image or PDF" title="Attach an image or PDF (8 MB max)">{{ icons.icon('paperclip', size=18) }}</button><button type="submit" class="btn btn-primary btn-icon" data-chat-send aria-label="Send message">{{ icons.icon('send', size=18) }}</button></div></div>
       </form>
-      <p class="ai-disclosure">DIT AI uses lecturer materials first, then your DIT curriculum records and the published prospectus, then general knowledge. Each answer is labelled with where it comes from. Review important academic work with your lecturer.</p>
+      <p class="ai-disclosure">DIT AI answers from lecturer materials first, then the live DIT prospectus, then general knowledge, and labels every answer. Attached files are read once and not stored.</p>
       {% else %}
       <div class="card ai-disabled-panel"><span class="ai-empty-state__mark">{{ icons.icon('sparkles', size=26) }}</span><h2>AI learning assistant</h2><p>Your guided, module-aware learning space.</p><p><strong>AI assistance will be available when the AI service is connected.</strong></p><p class="text-muted text-small">Add a <code>GEMINI_API_KEY</code> to the application environment and restart the app to activate chat.</p></div>
       {% endif %}

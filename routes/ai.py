@@ -196,6 +196,13 @@ def ask():
     if response_style not in {"guided", "simple", "detailed", "exam"}:
         response_style = "guided"
 
+    attachment = None
+    if data.get("attachment"):
+        try:
+            attachment = ai_engine.read_attachment(data["attachment"])
+        except ValueError as error:
+            return jsonify(ok=False, error=str(error)), 400
+        question = question or "Explain this attachment."
     if not question:
         return jsonify(ok=False, error="Please type a question or request first."), 400
     if len(question) > 4000:
@@ -229,11 +236,13 @@ def ask():
 
     result = ai_engine.ask(
         mode=mode, question=question, module=module, resource=resource,
-        history=history, student=current_user, response_style=response_style,
+        history=history, student=current_user, response_style=response_style, attachment=attachment,
     )
 
     if not result["ok"]:
         return jsonify(ok=False, error=result["error"]), 503
+    if attachment is not None:
+        question = f"{question}\n\n[Attached: {attachment[2]}]"
 
     if conversation is None:
         conversation = AIConversation(

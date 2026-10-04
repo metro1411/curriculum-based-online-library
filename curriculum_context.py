@@ -13,8 +13,8 @@ The goal is context, not restriction: every category is still answered.
 Retrieval priority used by ai_engine (highest first):
 
     1. lecturer-approved resources for the selected/current module
-    2. structured curriculum data (module records, topics, outcomes)
-    3. approved DIT academic documents (published prospectus text)
+    2. structured curriculum data (any live module or whole programme outline)
+    3. the live DIT prospectus text (rules, regulations, programme descriptions)
     4. other approved resources in the student's current modules
     5. general knowledge (optionally web-grounded), always labelled
 """
@@ -160,29 +160,100 @@ def module_search_text(module):
 
 
 def retrieve_curriculum(query_tokens, ctx, tokenize):
-    """Score structured module records against the query (priority 2)."""
+    """Score live module records against the query (priority 2).
+
+    The student's own modules are searched in full; every other live module
+    in the prospectus is searched by name and code, so questions about any
+    DIT module can be answered from the record.
+    """
+    from models import Module
+
     matches = []
     query = set(query_tokens)
     if not query:
         return matches
-    for module in ctx.modules:
-        text = module_profile_text(module)
-        tokens = set(tokenize(module_search_text(module)))
+    own = {module.id for module in ctx.modules}
+    others = Module.query.filter(Module.publication_status == "published", Module.is_active.is_(True),
+                                 Module.id.notin_(own or [0])).limit(2000).all()
+    for module in list(ctx.modules) + others:
+        mine = module.id in own
         name_tokens = set(tokenize(f"{module.name} {module.code or ''}"))
+        tokens = set(tokenize(module_search_text(module))) if mine else name_tokens
         overlap = query & tokens
-        if not overlap:
+        if not overlap or (not mine and len(query & name_tokens) < min(2, len(name_tokens))):
             continue
         score = len(overlap) + 1.5 * len(query & name_tokens)
         if ctx.selected_module is not None and module.id == ctx.selected_module.id:
             score *= 1.2
-        matches.append({"kind": "curriculum", "module": module, "text": text,
+        if not mine:
+            score *= 0.8
+        matches.append({"kind": "curriculum", "module": module, "text": module_profile_text(module),
                         "score": round(score, 2), "terms": len(overlap)})
     matches.sort(key=lambda item: item["score"], reverse=True)
-    return matches[:3]
+    return matches[:4]
 
 
-def retrieve_prospectus(query_tokens, ctx, tokenize, top_k=2):
-    """Search published prospectus text (priority 3). Drafts are never used."""
+# Words shared by most programme names; they cannot identify one programme.
+_GENERIC_PROGRAMME_WORDS = (
+    "diploma ordinary bachelor certificate degree programme program engineering technology "
+    "science higher basic technician master studies national"
+)
+
+
+def retrieve_programmes(query_tokens, tokenize, limit=2):
+    """Whole live programme outlines when a question names a programme."""
+    from models import Programme
+
+    query = set(query_tokens)
+    if not query:
+        return []
+    generic = set(tokenize(_GENERIC_PROGRAMME_WORDS))
+    scored = []
+    for programme in Programme.query.filter_by(is_active=True).all():
+        words = set(tokenize(programme.name))
+        name = (words - generic) or words
+        overlap = query & name
+        if not overlap or len(overlap) / len(name) < 0.5:
+            continue
+        score = len(overlap) / len(name) + 0.25 * len(query & set(tokenize(programme.department.name)))
+        scored.append({"kind": "programme", "programme": programme, "score": round(score, 2)})
+    scored.sort(key=lambda item: item["score"], reverse=True)
+    for item in scored[:limit]:
+        item["text"] = programme_outline_text(item["programme"])
+    return [item for item in scored[:limit] if item["text"]]
+
+
+def programme_outline_text(programme, max_modules=80):
+    """Every live module of a programme, by level and semester, as plain text."""
+    from models import Module, NtaLevel, Semester
+
+    modules = (Module.query.join(Semester).join(NtaLevel)
+               .filter(NtaLevel.programme_id == programme.id, Module.publication_status == "published",
+                       Module.is_active.is_(True))
+               .order_by(NtaLevel.level_number, Semester.semester_number, Module.display_order)
+               .limit(max_modules).all())
+    if not modules:
+        return ""
+    lines = [f"Programme: {programme.name} · Department: {programme.department.name}"]
+    current = None
+    for module in modules:
+        semester = module.semester
+        heading = f"{semester.nta_level.display_label} · {semester.label}"
+        if heading != current:
+            lines.append(heading + ":")
+            current = heading
+        facts = [module.type_label]
+        if module.credits_label:
+            facts.append(f"{module.credits_label} credits")
+        if module.prerequisites:
+            facts.append("prerequisites " + ", ".join(p.code or p.name for p in module.prerequisites))
+        lines.append(f"- {module.code + ' ' if module.code else ''}{module.name} ({'; '.join(facts)})")
+    return "\n".join(lines)
+
+
+def retrieve_prospectus(query_tokens, ctx, tokenize, top_k=4):
+    """Search the live prospectus text (priority 3): rules, regulations and
+    programme descriptions as printed. Stopped or replaced uploads are never used."""
     from models import CurriculumVersion, ProspectusChunk
 
     query = set(query_tokens)
@@ -215,6 +286,8 @@ def classify(query_tokens, ctx, retrieved, tokenize):
         return "lecturer_content"
     curriculum = retrieved.get("curriculum_matches") or []
     prospectus = retrieved.get("prospectus_matches") or []
+    if retrieved.get("programme_matches"):
+        return "dit_curriculum"
     if curriculum and (curriculum[0]["terms"] >= 2 or curriculum[0]["score"] >= 2.5):
         return "dit_curriculum"
     if prospectus and prospectus[0]["terms"] >= 3:

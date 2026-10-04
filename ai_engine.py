@@ -116,13 +116,14 @@ def retrieve_context(module=None, query="", resource=None, extra_resources=None,
             tokens = _tokenize(query)
             result["curriculum_matches"] = curriculum_context.retrieve_curriculum(tokens, context, _tokenize)
             result["prospectus_matches"] = curriculum_context.retrieve_prospectus(tokens, context, _tokenize)
+            result["programme_matches"] = curriculum_context.retrieve_programmes(tokens, _tokenize)
         return result
     except Exception:
         # A retrieval fault must never break the chat; answer as general
         # guidance and let the label say so.
         logger.exception("Curriculum retrieval failed")
         return {"chunks": [], "has_good_match": False, "curriculum_matches": [],
-                "prospectus_matches": [], "retrieval_error": True}
+                "prospectus_matches": [], "programme_matches": [], "retrieval_error": True}
 
 
 def _resource_metadata_text(r):
@@ -275,6 +276,12 @@ for readable fractions, define every symbol, keep units visible and always state
 answer. Never output LaTeX commands, dollar-sign math delimiters, or TeX markup. For programming
 questions, provide complete runnable code in a fenced block with the language specified, then
 explain the important sections and expected output.
+
+The live DIT prospectus is the official source for programmes, modules and DIT rules. When \
+prospectus programme outlines or excerpts are provided, answer questions about modules, \
+credits, prerequisites, progression, examinations, fees or other DIT regulations directly \
+from them and say they come from the DIT prospectus. If the prospectus content provided does \
+not cover the question, say so and suggest asking the department; never fill the gap.
 
 Never claim to represent official DIT policy, official curriculum, or official approval \
 unless that is explicitly present in the retrieved context.
@@ -470,10 +477,17 @@ def _build_context_block(student, module, resource, retrieved, context=None, sco
         for item in other_modules:
             lines.append(item["text"])
             lines.append("")
+    programmes = retrieved.get("programme_matches") or []
+    if programmes:
+        lines.append("")
+        lines.append("LIVE DIT PROSPECTUS PROGRAMME OUTLINES (priority 2 - the complete published module list):")
+        for item in programmes:
+            lines.append(item["text"])
+            lines.append("")
     prospectus = retrieved.get("prospectus_matches") or []
     if prospectus:
         lines.append("")
-        lines.append("PUBLISHED DIT PROSPECTUS EXCERPTS (priority 3 - official document text):")
+        lines.append("LIVE DIT PROSPECTUS EXCERPTS (priority 3 - official document text, including rules):")
         for i, item in enumerate(prospectus, start=1):
             lines.append(f"[P{i}] {item['title']}: {item['text'].strip()}")
 
@@ -893,9 +907,45 @@ def _web_sources_from_response(response):
     return sources
 
 
+ATTACHMENT_TYPES = {
+    "image/png": b"\x89PNG\r\n\x1a\n",
+    "image/jpeg": b"\xff\xd8\xff",
+    "image/webp": b"RIFF",
+    "application/pdf": b"%PDF",
+}
+MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
+
+
+def read_attachment(payload):
+    """Validate a base64 attachment from the chat. Returns (bytes, mime, name) or raises ValueError."""
+    import base64
+    import binascii
+
+    if not isinstance(payload, dict):
+        raise ValueError("The attachment could not be read.")
+    mime = (payload.get("mime") or "").lower()
+    if mime not in ATTACHMENT_TYPES:
+        raise ValueError("Attach a PNG, JPEG or WebP image, or a PDF.")
+    try:
+        data = base64.b64decode(payload.get("data") or "", validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError("The attachment could not be read.") from None
+    if not data:
+        raise ValueError("The attachment is empty.")
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        raise ValueError("Attachments must be 8 MB or smaller.")
+    if not data.startswith(ATTACHMENT_TYPES[mime]) or (mime == "image/webp" and data[8:12] != b"WEBP"):
+        raise ValueError("The file contents do not match its type.")
+    name = " ".join(str(payload.get("name") or "attachment").split())[:120]
+    return data, mime, name
+
+
 def ask(*, mode, question, module=None, resource=None, history=None, student=None,
-        extra_resources=None, response_style="guided"):
+        extra_resources=None, response_style="guided", attachment=None):
     """Ask the DIT AI Learning Assistant a question.
+
+    ``attachment`` is an optional (bytes, mime, name) image or PDF from
+    read_attachment; Gemini reads it alongside the question. It is never stored.
 
     Returns a dict with keys: ok, error, answer_text, answer_html, sources
     (list of Resource objects), general_guidance (bool).
@@ -938,9 +988,14 @@ def ask(*, mode, question, module=None, resource=None, history=None, student=Non
         content = (turn.get("content") or "").strip()
         if content:
             contents.append({"role": role, "parts": [{"text": content}]})
-    contents.append({"role": "user", "parts": [{"text": current_turn_text}]})
+    parts = [{"text": current_turn_text}]
+    if attachment is not None:
+        data, mime, name = attachment
+        parts[0]["text"] += f"\n\nATTACHED FILE: {name} ({mime}). Read it carefully and answer about it."
+        parts.append({"inline_data": {"mime_type": mime, "data": data}})
+    contents.append({"role": "user", "parts": parts})
 
-    web_grounding_requested = _web_grounding_allowed(retrieved, module)
+    web_grounding_requested = _web_grounding_allowed(retrieved, module) and attachment is None
     web_sources = []
     try:
         from google.genai import types

@@ -287,6 +287,11 @@
 .chat-input-row textarea:hover, .chat-input-row textarea:focus { border: 0; box-shadow: none; }
 .chat-composer__footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 6px; color: var(--text-3); font-size: 0.72rem; }
 .chat-composer__footer .btn-icon { width: 34px; min-height: 34px; border-radius: var(--radius-sm); }
+.chat-composer__actions { display: flex; gap: 6px; margin-left: auto; }
+.chat-attachment { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin-bottom: 6px; padding: 4px 8px; border-radius: var(--radius-sm); background: var(--surface-3); color: var(--text-2); font-size: 0.78rem; }
+.chat-attachment[hidden] { display: none; }
+.chat-attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-attachment button { border: 0; background: none; color: inherit; font-size: 1rem; line-height: 1; cursor: pointer; }
 .ai-disclosure { margin: 0; color: var(--text-3); font-size: 0.72rem; text-align: center; }
 
 .ai-disabled-panel { padding: 56px 24px; text-align: center; }
