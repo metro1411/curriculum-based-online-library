@@ -1,10 +1,4 @@
-"""
-routes/main.py
----------------
-Public landing page and the shared "Coming Soon" view used whenever a
-student or lecturer reaches a curriculum node that isn't part of the
-active learning pathway yet.
-"""
+"""Public landing page, service worker and offline page."""
 
 from flask import Blueprint, current_app, render_template, redirect, send_from_directory, url_for
 from flask_login import current_user
@@ -22,11 +16,6 @@ def landing():
         return redirect(url_for("student.dashboard") if current_user.is_student
                          else url_for("lecturer.dashboard"))
     return render_template("landing.html", ai_available=ai_engine.is_available())
-
-
-@main_bp.route("/about")
-def about():
-    return render_template("about.html")
 
 
 @main_bp.route("/sw.js")

@@ -2,7 +2,7 @@
 {% block title %}Audit log | {{ app_name }}{% endblock %}
 {% block content %}
 <div class="container fade-in">
-  <div class="page-header"><span class="page-header__eyebrow">{{ department.name }}</span><h1>Administrative audit log</h1><p>Trace approvals, deactivations, curriculum changes and other sensitive actions.</p></div>
+  <div class="page-header"><span class="page-header__eyebrow">{{ department.name }}</span><h1>Audit log</h1><p>Approvals, deactivations, prospectus changes and other sensitive actions.</p></div>
   <section class="card card-pad"><div class="responsive-table"><table class="data-table"><thead><tr><th>Date and time</th><th>Action</th><th>Target</th><th>Performed by</th><th>Source</th></tr></thead><tbody>{% for row in audit_logs %}<tr><td>{{ row.created_at.strftime('%d %b %Y · %H:%M') }}</td><td><strong>{{ row.action|replace('.', ' · ')|replace('_', ' ')|title }}</strong></td><td>{{ row.target_label or row.target_type }}<small>{{ row.target_type }}{% if row.target_id %} #{{ row.target_id }}{% endif %}</small></td><td>{{ row.actor.full_name if row.actor else 'System' }}</td><td>{{ row.ip_address or 'Background task' }}</td></tr>{% else %}<tr><td colspan="5">No audited actions have been recorded yet.</td></tr>{% endfor %}</tbody></table></div></section>
 </div>
 {% endblock %}

@@ -3,7 +3,7 @@
 {% set outcome_labels = {'carried': 'Carried over', 'moved': 'Moved', 'new': 'New', 'retired': 'Retired', 'unplaced': 'Needs placing'} %}
 {% block content %}
 <div class="container fade-in">
-  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ version.status_label }}{{ ' · live' if is_live }}</span><h1>{{ version.label }}</h1><p>{% if version.status == 'failed' %}Nothing was published. Fix these problems in the file and upload it again.{% elif version.published_at %}Published {{ version.published_at.strftime('%d %b %Y · %H:%M') }}.{% endif %}</p></div><a class="btn btn-secondary" href="{{ url_for('department.prospectus') }}">Back to prospectus</a></div>
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ version.status_label }}</span><h1>{{ version.label }}</h1><p>{% if version.status == 'failed' %}Nothing was published. Fix these problems in the file and upload it again.{% elif version.published_at %}Published {{ version.published_at.strftime('%d %b %Y · %H:%M') }}.{% endif %}</p></div><a class="btn btn-secondary" href="{{ url_for('department.prospectus') }}">Back to prospectus</a></div>
 
   {% if version.status == 'failed' %}
   <section class="card card-pad">

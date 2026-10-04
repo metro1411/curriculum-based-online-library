@@ -3,7 +3,7 @@
 {% block title %}Lecturer directory | {{ app_name }}{% endblock %}
 {% block content %}
 <div class="container fade-in">
-  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ department.name }}</span><h1>Lecturer directory</h1><p>Pause access safely when teaching staff change. Academic history and resources are never deleted.</p></div><a class="btn btn-secondary" href="{{ url_for('department.lecturer_requests') }}">Verification requests</a></div>
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ department.name }}</span><h1>Lecturer directory</h1><p>Pause access when staff change. History and resources are kept.</p></div><a class="btn btn-secondary" href="{{ url_for('department.lecturer_requests') }}">Verification requests</a></div>
   <div class="people-grid">
   {% for lecturer in lecturers %}
     <article class="card card-pad person-card">

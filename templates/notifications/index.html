@@ -4,7 +4,7 @@
 {% block content %}
 <div class="container container-narrow fade-in">
   <div class="page-header page-header--split">
-    <div><span class="page-header__eyebrow">Your updates</span><h1>Notifications</h1><p>Module decisions, private question replies and learning reminders in one place.</p></div>
+    <div><span class="page-header__eyebrow">Your updates</span><h1>Notifications</h1><p>Claim decisions, question replies and reminders.</p></div>
     {% if unread_notification_count %}
     <form method="POST" action="{{ url_for('notifications.read_all') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-secondary">Mark all as read</button></form>
     {% endif %}

@@ -5,7 +5,7 @@ downloads and AI requests).  These helpers aggregate that first-party data
 for the student and lecturer dashboards without tracking browser behaviour.
 """
 
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from extensions import db

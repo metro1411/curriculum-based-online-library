@@ -262,7 +262,7 @@ def _seed_curriculum():
             active_level = level
 
     # --- Semesters under NTA Level 5 -----------------------------------
-    sem1 = _get_or_create_semester(active_level, 1, is_active=False)
+    _get_or_create_semester(active_level, 1, is_active=False)
     sem2 = _get_or_create_semester(active_level, 2, is_active=True)
 
     # --- Modules under Semester 2 ---------------------------------------

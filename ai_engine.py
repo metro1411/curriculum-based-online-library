@@ -61,7 +61,7 @@ def _get_client():
         client = genai.Client(api_key=api_key)
         _client_cache[api_key] = client
         return client
-    except Exception as error:
+    except Exception:
         logger.exception("Could not initialize the Gemini client.")
         return None
 

@@ -307,8 +307,7 @@ def prospectus():
 def prospectus_result(version_id):
     version = db.get_or_404(CurriculumVersion, version_id)
     return render_template("department/prospectus_result.html", department=_department(),
-                           version=version, report=version.allocation_report,
-                           is_live=version.id == getattr(svc.live_version(), "id", None))
+                           version=version, report=version.allocation_report)
 
 
 @department_bp.route("/prospectus/undo", methods=["POST"])

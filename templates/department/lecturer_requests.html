@@ -3,7 +3,7 @@
 {% block title %}Lecturer verification | {{ app_name }}{% endblock %}
 {% block content %}
 <div class="container fade-in department-page">
-  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ department.name }}</span><h1>Lecturer verification</h1><p>Verify confirmed staff first. Approved lecturers then claim their modules for HOD review.</p></div><a class="btn btn-secondary" href="{{ url_for('department.lecturers') }}">Lecturer directory</a></div>
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ department.name }}</span><h1>Lecturer verification</h1><p>Approve confirmed staff. They then claim modules for your review.</p></div><a class="btn btn-secondary" href="{{ url_for('department.lecturers') }}">Lecturer directory</a></div>
   <div class="request-list">
   {% for item in lecturer_requests %}
     <article class="card card-pad request-card">
