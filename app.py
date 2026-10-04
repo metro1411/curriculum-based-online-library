@@ -4,6 +4,7 @@ import logging
 import os
 from datetime import datetime
 
+import click
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, logout_user
 from sqlalchemy import inspect, text
@@ -94,6 +95,7 @@ def _register_account_guard(app):
 
 
 def _register_blueprints(app):
+    from routes.admin import admin_bp
     from routes.ai import ai_bp
     from routes.api import api_bp
     from routes.auth import auth_bp
@@ -113,6 +115,7 @@ def _register_blueprints(app):
     app.register_blueprint(notifications_bp)
     app.register_blueprint(ai_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(admin_bp)
 
 
 def _register_error_handlers(app):
@@ -187,6 +190,15 @@ def _apply_schema_migrations(app):
             "publication_status": "VARCHAR(20) NOT NULL DEFAULT 'published'",
             "created_by_id": "INTEGER",
             "updated_at": "TIMESTAMP",
+            "credits": "NUMERIC(6, 2)",
+            "curriculum_version_id": "INTEGER REFERENCES curriculum_versions(id)",
+            "provenance": "VARCHAR(30)",
+        },
+        "nta_levels": {
+            "year_label": "VARCHAR(40)",
+        },
+        "ai_messages": {
+            "context_label": "VARCHAR(30)",
         },
         "lecturer_assignments": {
             "status": "VARCHAR(20) NOT NULL DEFAULT 'approved'",
@@ -202,6 +214,8 @@ def _apply_schema_migrations(app):
         },
         "resources": {
             "topic_id": "INTEGER",
+            "learning_objectives": "TEXT",
+            "lecturer_remarks": "TEXT",
         },
         "learning_events": {
             "qualifies_for_streak": "BOOLEAN NOT NULL DEFAULT FALSE",
@@ -231,6 +245,20 @@ def _apply_schema_migrations(app):
             with db.engine.begin() as connection:
                 connection.execute(text(f"ALTER TABLE resources DROP COLUMN {legacy_column}"))
             app.logger.info("Removed legacy resources schema column during startup migration.")
+
+    # Record where pre-existing modules came from. Modules without a creator
+    # were shipped by the seed script and have not been checked against an
+    # official prospectus; modules with a creator were added by an HOD.
+    if "modules" in inspector.get_table_names():
+        with db.engine.begin() as connection:
+            connection.execute(text(
+                "UPDATE modules SET provenance = 'legacy_seed' "
+                "WHERE provenance IS NULL AND created_by_id IS NULL AND curriculum_version_id IS NULL"
+            ))
+            connection.execute(text(
+                "UPDATE modules SET provenance = 'hod_manual' "
+                "WHERE provenance IS NULL AND created_by_id IS NOT NULL AND curriculum_version_id IS NULL"
+            ))
 
     # Historical AI prompts must never remain available as lecturer analytics.
     if "learning_events" in inspector.get_table_names():
@@ -335,6 +363,37 @@ def _register_commands(app):
             sent += 1
         db.session.commit()
         print(f"Sent {sent} study reminder notification(s).")
+
+
+    @app.cli.command("create-curriculum-admin")
+    @click.option("--email", required=True, help="Sign-in email for the administrator.")
+    @click.option("--name", "full_name", required=True, help="Administrator's full name.")
+    @click.password_option(help="At least 12 characters.")
+    def create_curriculum_admin(email, full_name, password):
+        """Create or promote a curriculum administrator (audited)."""
+        from governance import record_audit
+        from models import User
+
+        email = email.strip().lower()
+        if len(password) < 12:
+            raise click.ClickException("Use a password of at least 12 characters.")
+        user = User.query.filter_by(email=email).first()
+        if user is None:
+            user = User(full_name=full_name.strip(), email=email, username=email.split("@")[0][:80],
+                        role="admin", account_status="active", is_active_account=True)
+            db.session.add(user)
+            previous = None
+        else:
+            previous = user.role
+            user.role = "admin"
+            user.account_status = "active"
+            user.is_active_account = True
+        user.set_password(password)
+        db.session.flush()
+        record_audit("role.changed", "User", target_id=user.id, target_label=user.full_name,
+                     details={"from": previous, "to": "admin", "via": "cli"})
+        db.session.commit()
+        click.echo(f"{user.email} is now a curriculum administrator.")
 
 
 def _register_health_check(app):

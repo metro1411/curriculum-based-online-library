@@ -12,7 +12,9 @@ from flask import (
 )
 from flask_login import login_required, current_user
 
+import academic_context
 import ai_engine
+import curriculum_context
 from extensions import db
 from models import (
     Module, Resource, Semester, AIConversation, AIMessage, StudentPreference,
@@ -32,6 +34,9 @@ def require_student_role():
 
 
 def _active_modules():
+    registered = academic_context.registered_modules(current_user)
+    if registered:
+        return sorted(registered, key=lambda m: (m.module_type != "core", m.display_order))
     if current_user.programme_id:
         modules = (Module.query.join(Semester).filter(
             Semester.nta_level.has(programme_id=current_user.programme_id),
@@ -55,6 +60,8 @@ def _student_can_use_module(module):
     """AI context stays inside the student's Electrical Engineering programme."""
     if not module:
         return False
+    if academic_context.is_registered(current_user, module):
+        return True
     if current_user.programme_id:
         return (
             module.is_published
@@ -148,6 +155,8 @@ def assistant():
                 "sources": archive_sources,
                 "web_sources": web_sources,
                 "general_guidance": m.general_guidance,
+                "context_label": m.context_label,
+                "context_label_text": curriculum_context.CONTEXT_LABELS.get(m.context_label or ""),
             })
 
     preference = StudentPreference.query.filter_by(student_id=current_user.id).first()
@@ -168,6 +177,7 @@ def assistant():
         selected_mode=selected_mode,
         chat_messages=chat_messages,
         preference=preference,
+        curriculum=curriculum_context.build_context(student=current_user, module=selected_module),
     )
 
 
@@ -245,6 +255,7 @@ def ask():
         content=result["answer_text"], content_html=result["answer_html"],
         sources_json=ai_engine.sources_to_json(result["sources"], result.get("web_sources")),
         general_guidance=result["general_guidance"],
+        context_label=result.get("context_label"),
     )
     db.session.add(assistant_message)
     event_module = module or next(iter(_active_modules()), None)
@@ -275,6 +286,10 @@ def ask():
         general_guidance=result["general_guidance"],
         web_grounded=result.get("web_grounded", False),
         followups=result.get("followups", []),
+        context_label=result.get("context_label"),
+        context_label_text=result.get("context_label_text"),
+        curriculum_context=result.get("curriculum_context"),
+        curriculum_sources=result.get("curriculum_sources", []),
     )
 
 
@@ -317,6 +332,7 @@ def regenerate():
     assistant_message.content_html = result["answer_html"]
     assistant_message.sources_json = ai_engine.sources_to_json(result["sources"], result.get("web_sources"))
     assistant_message.general_guidance = result["general_guidance"]
+    assistant_message.context_label = result.get("context_label")
     conversation.updated_at = utcnow()
     db.session.commit()
 
@@ -329,6 +345,10 @@ def regenerate():
         general_guidance=result["general_guidance"],
         web_grounded=result.get("web_grounded", False),
         followups=result.get("followups", []),
+        context_label=result.get("context_label"),
+        context_label_text=result.get("context_label_text"),
+        curriculum_context=result.get("curriculum_context"),
+        curriculum_sources=result.get("curriculum_sources", []),
     )
 
 

@@ -36,6 +36,12 @@
   </div>
 
   {% if resource.description %}<p class="resource-description">{{ resource.description }}</p>{% endif %}
+  {% if resource.learning_objectives or resource.lecturer_remarks %}
+  <dl class="curriculum-mapping">
+    {% if resource.learning_objectives %}<dt>Learning objectives</dt><dd>{{ resource.learning_objectives }}</dd>{% endif %}
+    {% if resource.lecturer_remarks %}<dt>Lecturer remarks</dt><dd>{{ resource.lecturer_remarks }}</dd>{% endif %}
+  </dl>
+  {% endif %}
   <div class="study-progress card" data-study-progress><span class="study-progress__icon">{{ icons.icon('clock', size=17) }}</span><div><strong data-study-status>Focused study timer ready</strong><span data-study-detail>Keep this resource active for 10 minutes to qualify today’s streak.</span></div><div class="study-progress__bar"><span data-study-bar></span></div></div>
 
   <div class="resource-layout">

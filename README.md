@@ -13,6 +13,9 @@ After extracting the release ZIP, double-click `START_HERE.bat`. It provides the
 - Lecturer workspaces for claiming HOD-approved modules, publishing topics and categorised resources, and answering anonymous student questions through the `New`, `Reviewing`, `Answered`, `Will Address in Class` and `Closed` workflow.
 - Module announcements: lecturers message every enrolled student from **Announcements** (or the module workspace). Students get an in-app alert with an unread badge, see updates on their dashboard and module page, and can reply privately with one tap. Posting is limited to approved lecturers, de-duplicated, rate-limited (10 per hour) and audited; email delivery is optional per announcement and respects each student's email preference.
 - Built for phones on slow or patchy connections: gzip-compressed pages and assets, content-hashed CSS/JS cached for a year, an offline page instead of the browser error screen (service worker; signed-in pages are never cached on the device), double-tap and offline protection on forms, request timeouts with clear messages, 16px inputs that avoid iOS zoom, and large touch targets. The app can be added to a phone's home screen.
+- Prospectus-driven curriculum: a Curriculum Administrator uploads the DIT prospectus, then extracts, imports (CSV) or enters modules, reviews, validates, approves and publishes a curriculum version. Unverified data is never published automatically, published curriculum can't be deleted, and every step is audited. Modules carry credits, prerequisites and their provenance.
+- Curriculum-aware DIT AI: answers use the student's programme, level, semester and modules, rank lecturer resources first, and label every answer (for example *General information — not identified as part of your current DIT curriculum.*). Lecturers add learning objectives and remarks to resources, and students get study recommendations that show their evidence.
+- A read-only SOMA integration boundary that reports "not configured" until DIT's official API contract is supplied, plus an internal way for administrators to set a student's academic context. See [docs/CURRICULUM_ARCHITECTURE.md](docs/CURRICULUM_ARCHITECTURE.md).
 - HOD curriculum versioning, module code and type (`Core` or `General Studies`), lecturer verification/deactivation, claim approval, module archiving and a searchable audit log.
 - Email and in-app notifications with student-controlled optional reminder frequency. Direct question replies and account notices remain available even when optional reminders are disabled.
 - Local SQLite development storage plus managed-Postgres and private-cloud-storage support for public deployment; secure password hashing, CSRF protection, strict access scoping, security headers, file validation and sensitive-action audit trails.
@@ -37,6 +40,8 @@ On a local first launch, the application creates the curriculum, learning resour
 | --- | --- | --- |
 | Student | `student@dit.ac.tz` | `Student@123` |
 | Lecturer | `lecturer@dit.ac.tz` | `Lecturer@123` |
+
+Create the first Curriculum Administrator with `flask --app app create-curriculum-admin --email you@example.org --name "Curriculum Office"` (you will be prompted for a password of at least 12 characters), then open **Prospectus** after signing in. `docs/samples/` holds a blank CSV import template and a file of DEMO rows that shows the format.
 
 ### Gemini AI setup
 
@@ -94,3 +99,7 @@ Optionally create a local `.env` file and set values appropriate to your environ
 - `notifications.py` — in-app and SMTP notification delivery with optional-email controls.
 - `governance.py` — audit logging for sensitive administrative and teaching actions.
 - `seed.py` — idempotent curriculum and starter learning data.
+- `curriculum_service.py`, `routes/admin.py` — prospectus workflow and the Curriculum Administrator workspace.
+- `curriculum_context.py` — curriculum context, retrieval and answer labels for DIT AI.
+- `academic_context.py`, `integrations/soma.py` — student academic context and the SOMA adapter boundary.
+- `permissions.py`, `recommendations.py` — central role checks and evidence-based study recommendations.

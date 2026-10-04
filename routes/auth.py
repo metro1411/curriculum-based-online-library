@@ -18,6 +18,7 @@ ROLE_LABELS = {
     "student": "Student",
     "lecturer": "Lecturer",
     "department_head": "Head of Department",
+    "admin": "Curriculum Administrator",
 }
 
 
@@ -45,6 +46,8 @@ def _role_for_registration_number(value):
 
 
 def _destination(user):
+    if user.is_admin:
+        return url_for("admin.dashboard")
     if user.is_department_head:
         return url_for("department.dashboard")
     if user.is_lecturer:

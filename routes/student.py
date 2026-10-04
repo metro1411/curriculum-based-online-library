@@ -16,6 +16,7 @@ from flask import (
 from flask_login import login_required, current_user
 from markupsafe import escape
 
+import academic_context
 import ai_engine
 import announcements
 from extensions import db
@@ -69,6 +70,10 @@ def _student_can_access_module(module):
     programme = module.semester.nta_level.programme
     if not module.is_published:
         return False
+    # Registered modules (e.g. a carried-over module from another semester)
+    # are always part of the learner's curriculum context.
+    if academic_context.is_registered(current_user, module):
+        return True
     if current_user.programme_id and programme.id != current_user.programme_id:
         return False
     if current_user.semester_id and module.semester_id != current_user.semester_id:
@@ -165,8 +170,18 @@ def dashboard():
         "ai_questions": academic_questions,
     }
 
+    import recommendations
+    curriculum = academic_context.describe_context(current_user)
+    module_resource_counts = {
+        module.id: sum(1 for resource in module.resources if resource.is_verified)
+        for module in curriculum["modules"]
+    }
     return render_template(
         "student/dashboard.html",
+        curriculum=curriculum,
+        module_resource_counts=module_resource_counts,
+        curriculum_recommendations=recommendations.curriculum_recommendations(current_user),
+        recommendation_note=recommendations.EVIDENCE_NOTE,
         latest_announcements=announcements.for_modules(
             [module.id for module in _accessible_semester_modules()], limit=3
         ),

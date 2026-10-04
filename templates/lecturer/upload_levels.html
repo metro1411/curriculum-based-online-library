@@ -16,7 +16,7 @@
         <span class="entity-card__icon">{{ icons.icon('layers', size=20) }}</span>
         {% if not level.is_active %}<span class="badge badge-coming-soon">Coming Soon</span>{% endif %}
       </div>
-      <h3>{{ level.label }}</h3>
+      <h3>{{ level.label }}</h3>{% if level.year_label %}<p class="text-muted text-small">{{ level.year_label }}</p>{% endif %}
     </a>
     {% endfor %}
   </div>

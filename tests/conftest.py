@@ -209,3 +209,18 @@ def user_id(app, registration_number):
 
 
 __all__ = ["db", "sign_in", "placement", "user_id"]
+
+
+ADMIN = ("curriculum.admin@example.test", "CurriculumAdmin@123")
+
+
+@pytest.fixture(scope="session")
+def admin(app):
+    """A curriculum administrator created through the audited CLI command."""
+    runner = app.test_cli_runner()
+    result = runner.invoke(args=[
+        "create-curriculum-admin", "--email", ADMIN[0], "--name", "Curriculum Admin",
+        "--password", ADMIN[1],
+    ])
+    assert result.exit_code == 0, result.output
+    return sign_in(app.test_client(), *ADMIN)

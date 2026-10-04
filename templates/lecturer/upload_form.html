@@ -4,9 +4,19 @@
 {% block content %}
 <div class="container-narrow fade-in">
   <div class="page-header"><span class="page-header__eyebrow">Module knowledge base</span><h1>Add material to {{ module.name }}</h1><p>{{ programme.name }} · {{ level.label }} · {{ semester.label }}</p></div>
+  <dl class="curriculum-mapping card card-pad" aria-label="Curriculum mapping for this resource">
+    <div><dt>Department</dt><dd>{{ department.name }}</dd></div>
+    <div><dt>Programme</dt><dd>{{ programme.name }}</dd></div>
+    <div><dt>Level</dt><dd>{{ level.display_label }}</dd></div>
+    <div><dt>Semester</dt><dd>{{ semester.label }}</dd></div>
+    <div><dt>Module</dt><dd>{{ module.code or 'Code pending' }} · {{ module.name }}</dd></div>
+    <div><dt>Curriculum</dt><dd>{{ module.academic_year.label if module.academic_year else 'Legacy' }}{% if module.curriculum_version %} · {{ module.curriculum_version.label }}{% endif %}</dd></div>
+  </dl>
   <form method="POST" enctype="multipart/form-data" class="card card-pad"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-group"><label class="form-label" for="title">Resource title <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="title" name="title" type="text" required maxlength="250" placeholder="e.g. Feedback systems lecture notes"></div>
     <div class="form-group"><label class="form-label" for="description">Description</label><textarea class="form-textarea" id="description" name="description" maxlength="1000" placeholder="Describe the learning purpose and content covered."></textarea></div>
+    <div class="form-group"><label class="form-label" for="learning_objectives">Learning objectives <span class="form-hint">(optional)</span></label><textarea class="form-textarea" id="learning_objectives" name="learning_objectives" rows="3" maxlength="4000" placeholder="What students should be able to do after using this resource. Used to improve DIT AI retrieval."></textarea></div>
+    <div class="form-group"><label class="form-label" for="lecturer_remarks">Lecturer remarks <span class="form-hint">(optional)</span></label><textarea class="form-textarea" id="lecturer_remarks" name="lecturer_remarks" rows="2" maxlength="4000" placeholder="Academic guidance, e.g. read before the practical session."></textarea></div>
     <div class="form-group"><label class="form-label" for="topic_id">Topic</label><select class="form-select" id="topic_id" name="topic_id"><option value="">General module resource</option>{% for topic in topics %}<option value="{{ topic.id }}">{{ topic.category_label }} · {{ topic.unit_label or 'Topic' }} · {{ topic.title }}</option>{% endfor %}</select><p class="form-hint">The resource will appear inside this topic’s album.</p></div>
     <div class="form-group"><label class="form-label">Resource type</label><div class="type-pill-group">{% for key, label in resource_types %}<label class="type-pill"><input type="radio" name="resource_type" value="{{ key }}" {{ 'checked' if key == 'notes' }}><span>{{ label }}</span></label>{% endfor %}</div></div>
     <hr>

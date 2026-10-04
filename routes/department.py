@@ -392,6 +392,7 @@ def _create_module(department):
         is_active=True,
         display_order=next_order,
         created_by_id=current_user.id,
+        provenance="hod_manual",
     )
     db.session.add(module)
     db.session.flush()

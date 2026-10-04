@@ -187,3 +187,72 @@
   .topic-form__footer, .module-selection-form__actions, .module-claim-summary--actionable { flex-direction: column; align-items: stretch; }
   .topic-form__footer .btn, .module-selection-form__actions .btn { width: 100%; }
 }
+
+/* --------------------------------------------------------------------------
+   Curriculum administration, mapping and recommendations
+   -------------------------------------------------------------------------- */
+.workflow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.workflow-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 0.85rem;
+}
+.workflow-steps li span {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  font-weight: 600;
+}
+.workflow-steps li.is-done span { background: var(--accent-soft-2); color: var(--accent-strong); }
+.workflow-steps li.is-current { border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.workflow-steps li.is-current span { background: var(--accent); color: var(--on-accent); }
+
+.notice {
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.notice--warning { border-color: var(--warning-border); background: var(--warning-soft); }
+
+.validation-report h3 { font-size: 1rem; }
+.validation-report__errors li { color: var(--danger); margin-bottom: 4px; }
+.data-table tr.has-issues td { background: var(--danger-soft); }
+.data-table td small.text-danger { display: block; }
+.data-table details.inline-editor form { display: grid; gap: 6px; min-width: 260px; margin-top: 8px; }
+
+.curriculum-mapping {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 16px;
+  margin: 0 0 16px;
+}
+.curriculum-mapping dt { color: var(--text-3); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.curriculum-mapping dd { margin: 2px 0 0; color: var(--text); font-weight: 600; }
+
+.recommendation {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.recommendation:last-of-type { border-bottom: 0; }
+.recommendation p { margin: 0; }
