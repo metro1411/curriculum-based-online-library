@@ -1,0 +1,4 @@
+department,programme,nta_level,year_label,semester,module_code,module_name,module_type,credits,prerequisites,description
+DEMO Department,DEMO Programme,4,DEMO Year 1,1,DEMO-401,DEMO Module A,core,10,,DEMO data for training only - not DIT curriculum.
+DEMO Department,DEMO Programme,4,DEMO Year 1,2,DEMO-402,DEMO Module B,core,10,DEMO-401,DEMO data for training only - not DIT curriculum.
+DEMO Department,DEMO Programme,5,DEMO Year 2,1,DEMO-501,DEMO Module C,general_studies,,DEMO-402,DEMO data for training only - not DIT curriculum.

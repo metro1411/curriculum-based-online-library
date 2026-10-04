@@ -151,6 +151,21 @@ class Config:
     TRUST_PROXY_HEADERS = os.environ.get("TRUST_PROXY_HEADERS", "0") == "1"
     PREFERRED_URL_SCHEME = "https"
 
+    # --- SOMA integration (optional) -----------------------------------------
+    # SOMA stays the authoritative source of official student records. No
+    # official API contract has been provided yet, so the default adapter is
+    # 'none' and the hub uses internally supplied academic context. Values are
+    # only used when actually configured; nothing here is a real endpoint.
+    SOMA_ADAPTER = os.environ.get("SOMA_ADAPTER", "none").strip().lower() or "none"
+    SOMA_API_BASE_URL = os.environ.get("SOMA_API_BASE_URL", "").strip()
+    SOMA_API_KEY = os.environ.get("SOMA_API_KEY", "").strip()
+    SOMA_CLIENT_ID = os.environ.get("SOMA_CLIENT_ID", "").strip()
+    SOMA_CLIENT_SECRET = os.environ.get("SOMA_CLIENT_SECRET", "").strip()
+    SOMA_STUDENT_RECORD_PATH = os.environ.get("SOMA_STUDENT_RECORD_PATH", "").strip()
+    SOMA_TIMEOUT_SECONDS = int(os.environ.get("SOMA_TIMEOUT_SECONDS", "10"))
+    # DEMO only: JSON file of mock records for SOMA_ADAPTER=mock (ignored in production).
+    SOMA_MOCK_DATA_FILE = os.environ.get("SOMA_MOCK_DATA_FILE", "").strip()
+
     # Flask-WTF CSRF protection is on globally; AJAX calls send the token via
     # the X-CSRFToken header (see static/js/main.js).
     WTF_CSRF_ENABLED = True
