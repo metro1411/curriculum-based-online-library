@@ -673,7 +673,11 @@ class _Journal:
     """Records every live change so the publish can be reversed exactly."""
 
     def __init__(self):
-        self.changes, self.created = [], []
+        self.changes, self.created, self._new = [], [], set()
+
+    def is_new(self, row):
+        """True when this publish created the row, so nothing below it exists yet."""
+        return (row.__tablename__, row.id) in self._new
 
     def set(self, row, attr, value):
         old = getattr(row, attr)
@@ -685,7 +689,13 @@ class _Journal:
         db.session.add(row)
         db.session.flush()
         self.created.append([row.__tablename__, row.id])
+        self._new.add((row.__tablename__, row.id))
         return row
+
+    def add_many(self, rows):
+        db.session.add_all(rows)
+        db.session.flush()
+        self.created.extend([row.__tablename__, row.id] for row in rows)
 
 
 def live_version():
@@ -799,28 +809,43 @@ def _swap(version, user):
         journal.set(previous, "status", "archived")
 
     touched = {name: set() for name in ("departments", "programmes", "nta_levels", "semesters")}
-    years, created_by_code = {}, {}
+    years, created_by_code, placed, orders, cache = {}, {}, [], {}, {}
+
+    def cached(key, make):
+        if key not in cache:
+            cache[key] = make()
+        return cache[key]
+
+    # Look each department, programme, level and semester up once and add the
+    # modules in one flush: a remote database pays per round trip.
     for entry in version.entries:
         draft = entry.programme
-        department = _department(draft.department_name, journal)
-        programme = _programme(department, draft, journal)
-        level = _level(programme, entry.nta_level, draft.year_label_map.get(entry.nta_level), journal)
-        semester = _semester(level, entry.semester_number, journal)
+        department = cached(("d", draft.department_name.lower()), lambda: _department(draft.department_name, journal))
+        programme = cached(("p", department.id, draft.name.lower()), lambda: _programme(department, draft, journal))
+        level = cached(("l", programme.id, entry.nta_level),
+                       lambda: _level(programme, entry.nta_level, draft.year_label_map.get(entry.nta_level), journal))
+        semester = cached(("s", level.id, entry.semester_number), lambda: _semester(level, entry.semester_number, journal))
         for row in (department, programme, level, semester):
             touched[row.__tablename__].add(row.id)
         if department.id not in years:
             years[department.id] = _year(department, version.academic_year_label, user, journal)
-        order = (db.session.query(db.func.max(Module.display_order))
-                 .filter_by(semester_id=semester.id).scalar() or 0) + 1
-        module = journal.add(Module(
+        if semester.id not in orders:
+            orders[semester.id] = 0 if journal.is_new(semester) else (
+                db.session.query(db.func.max(Module.display_order)).filter_by(semester_id=semester.id).scalar() or 0)
+        orders[semester.id] += 1
+        module = Module(
             semester_id=semester.id, academic_year_id=years[department.id].id, name=entry.module_name.strip(),
             code=entry.module_code, module_type=entry.module_type, credits=entry.credits,
             description=entry.description, publication_status="published", is_active=True,
-            display_order=order, created_by_id=getattr(user, "id", None), provenance="prospectus",
+            display_order=orders[semester.id], created_by_id=getattr(user, "id", None), provenance="prospectus",
             curriculum_version_id=version.id,
-        ))
-        entry.live_module_id = module.id
+        )
+        db.session.add(module)
+        placed.append((entry, module))
         created_by_code.setdefault(entry.module_code.upper(), []).append((programme, module))
+    journal.add_many([module for _, module in placed])
+    for entry, module in placed:
+        entry.live_module_id = module.id
 
     for entry in version.entries:
         for code in entry.prerequisite_list:
@@ -1009,8 +1034,8 @@ def _department(name, journal):
 
 
 def _programme(department, draft, journal):
-    programme = Programme.query.filter(Programme.department_id == department.id,
-                                       db.func.lower(Programme.name) == draft.name.lower()).first()
+    programme = None if journal.is_new(department) else Programme.query.filter(
+        Programme.department_id == department.id, db.func.lower(Programme.name) == draft.name.lower()).first()
     if programme is None:
         base = slugify(draft.name)
         slug, n = base, 2
@@ -1024,7 +1049,8 @@ def _programme(department, draft, journal):
 
 
 def _level(programme, level_number, year_label, journal):
-    level = NtaLevel.query.filter_by(programme_id=programme.id, level_number=level_number).first()
+    level = None if journal.is_new(programme) else \
+        NtaLevel.query.filter_by(programme_id=programme.id, level_number=level_number).first()
     if level is None:
         return journal.add(NtaLevel(programme_id=programme.id, level_number=level_number,
                                     year_label=year_label, is_active=True))
@@ -1035,7 +1061,8 @@ def _level(programme, level_number, year_label, journal):
 
 
 def _semester(level, semester_number, journal):
-    semester = Semester.query.filter_by(nta_level_id=level.id, semester_number=semester_number).first()
+    semester = None if journal.is_new(level) else \
+        Semester.query.filter_by(nta_level_id=level.id, semester_number=semester_number).first()
     if semester is None:
         return journal.add(Semester(nta_level_id=level.id, semester_number=semester_number, is_active=True))
     journal.set(semester, "is_active", True)

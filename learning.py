@@ -285,7 +285,7 @@ def personal_recommendations(student):
         if len(recommendations) >= 3:
             break
     if not recommendations and student.semester:
-        for module in student.semester.modules:
+        for module in (m for m in student.semester.modules if m.is_published):
             resource = next((item for item in module.resources if item.is_verified), None)
             if resource:
                 recommendations.append({

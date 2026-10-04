@@ -70,10 +70,16 @@ def _load_bundled_prospectus():
     """Publish the prospectus shipped in bundled_prospectus on first start."""
     from curriculum_service import load_bundled_prospectus
 
-    version = load_bundled_prospectus()
-    if version is None:
+    try:
+        version = load_bundled_prospectus()
+        if version is None:
+            return
+        db.session.commit()
+    except Exception:
+        # The app still starts; the HOD can upload the prospectus by hand.
+        db.session.rollback()
+        logger.exception("The bundled prospectus could not be loaded.")
         return
-    db.session.commit()
     if version.status == "published":
         logger.info("Published the bundled prospectus: %s modules.", len(version.entries))
     else:

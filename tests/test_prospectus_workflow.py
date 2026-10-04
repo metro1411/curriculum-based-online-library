@@ -463,3 +463,21 @@ def test_shipped_prospectus_is_the_one_the_reader_was_tuned_on():
     assert len(rows) > 1400
     assert {row["department"] for row in rows} >= {"Civil Engineering", "Computer Studies", "Mwanza Campus"}
     assert all(row["nta_level"] and row["semester"] for row in rows)
+
+
+def test_students_and_lecturers_get_no_dead_links_after_modules_retire(app, hod, student, lecturer, seeded_paths,
+                                                                       live_restored):
+    p = seeded_paths
+    with app.app_context():
+        retired = [r.id for r in Resource.query.filter(Resource.module_id != p["module_id"],
+                                                       Resource.verification_status == "verified")]
+    student.get(f"/resource/{retired[0]}")  # history that points at a module about to retire
+    _upload(hod, _csv([(p["department"], p["programme"], p["level"], p["semester"], p["code"],
+                        "DEMO Kept Module", 10, "")]))
+    page = student.get("/dashboard").get_data(as_text=True)
+    assert not any(f'href="/resource/{rid}"' in page for rid in retired)
+    with app.app_context():
+        department = User.query.filter_by(email="student@dit.ac.tz").one().department
+    programmes = student.get(f"/archive/{department.slug}").get_data(as_text=True)
+    assert programmes.count('<a class="entity-card') == 1
+    assert "/resource/" not in lecturer.get("/lecturer/resources").get_data(as_text=True)
