@@ -1,6 +1,6 @@
 """Prospectus upload and automatic publishing.
 
-A Head of Department uploads the prospectus and the system does the rest:
+The Curriculum Administrator uploads the prospectus and the system does the rest:
 
     UPLOAD -> READ -> CHECK -> SWAP (one transaction) -> LIVE
 
@@ -764,8 +764,8 @@ def load_bundled_prospectus(directory=BUNDLED_PROSPECTUS_DIR):
     """Publish the prospectus shipped in ``bundled_prospectus`` if it has never been loaded.
 
     The newest file named like ``dit_prospectus_2025_2026.txt`` is used; the
-    academic year comes from its name. A file that was ever loaded (even if a
-    HOD later undid or replaced it) is never loaded again. Returns the new
+    academic year comes from its name. A file that was ever loaded (even if an
+    administrator later undid or replaced it) is never loaded again. Returns the new
     version, or None when there is nothing to do.
     """
     from werkzeug.datastructures import FileStorage

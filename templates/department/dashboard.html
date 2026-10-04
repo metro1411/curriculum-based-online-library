@@ -4,8 +4,8 @@
 {% block content %}
 <div class="container fade-in department-page">
   <div class="page-header dashboard-hero page-header--split">
-    <div><span class="page-header__eyebrow">{{ department.name }} · {{ current_year.label if current_year else 'Academic year not selected' }}</span><h1>Department overview</h1><p>Prospectus, lecturers and learning trends.</p></div>
-    <div class="hero-actions"><a class="btn btn-primary" href="{{ url_for('department.prospectus') }}">Upload prospectus</a><a class="btn btn-secondary" href="{{ url_for('department.module_claims') }}">Review claims{% if pending_claims %} ({{ pending_claims|length }}){% endif %}</a></div>
+    <div><span class="page-header__eyebrow">{{ department.name }} · {{ current_year.label if current_year else 'Academic year not selected' }}</span><h1>Department overview</h1><p>Curriculum, lecturers and learning trends.</p></div>
+    <div class="hero-actions"><a class="btn btn-primary" href="{{ url_for('department.curriculum') }}">Manage curriculum</a><a class="btn btn-secondary" href="{{ url_for('department.module_claims') }}">Review claims{% if pending_claims %} ({{ pending_claims|length }}){% endif %}</a></div>
   </div>
 
   <section class="dashboard-stat-grid department-stat-grid">

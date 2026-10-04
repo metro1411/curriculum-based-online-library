@@ -11,6 +11,8 @@ main_bp = Blueprint("main", __name__)
 @main_bp.route("/")
 def landing():
     if current_user.is_authenticated:
+        if current_user.is_admin:
+            return redirect(url_for("admin.dashboard"))
         if current_user.is_department_head:
             return redirect(url_for("department.dashboard"))
         return redirect(url_for("student.dashboard") if current_user.is_student

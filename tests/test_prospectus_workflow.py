@@ -33,12 +33,12 @@ def _csv(rows):
     return (HEADER + body).encode("utf-8")
 
 
-def _upload(hod, content, filename="demo.csv", *, year="2031/2032", large=True):
+def _upload(admin, content, filename="demo.csv", *, year="2031/2032", large=True):
     title = f"{_unique()} prospectus"
     data = {"title": title, "academic_year_label": year, "file": (io.BytesIO(content), filename)}
     if large:
         data["allow_large_change"] = "1"
-    response = hod.post("/department/prospectus", data=data, content_type="multipart/form-data")
+    response = admin.post("/admin/prospectus", data=data, content_type="multipart/form-data")
     assert response.status_code == 302
     return title
 
@@ -62,7 +62,7 @@ def _live_snapshot(app):
 
 
 @pytest.fixture
-def live_restored(app, hod):
+def live_restored(app, admin):
     """Undo every publish a test makes and prove the seed curriculum is back."""
     before = _live_snapshot(app)
     with app.app_context():
@@ -97,7 +97,7 @@ def seeded_paths(app, seeded):
         db.session.commit()
 
 
-def test_clean_upload_goes_live_moves_resources_and_can_be_undone(app, hod, seeded_paths, live_restored):
+def test_clean_upload_goes_live_moves_resources_and_can_be_undone(app, admin, seeded_paths, live_restored):
     p = seeded_paths
     with app.app_context():
         resources = [r.id for r in Resource.query.filter_by(module_id=p["module_id"])]
@@ -105,7 +105,7 @@ def test_clean_upload_goes_live_moves_resources_and_can_be_undone(app, hod, seed
         assignment_id = assignment.id
         topics = [t.id for t in Topic.query.filter_by(module_id=p["module_id"])]
         live_before = Module.query.filter(Module.publication_status != "archived").count()
-    title = _upload(hod, _csv([
+    title = _upload(admin, _csv([
         ("DEMO Moved Dept", "DEMO Programme", 4, 1, p["code"], "DEMO Taught Module", 10, ""),
         (p["department"], p["programme"], p["level"], p["semester"], "DEMO-NEW1", "DEMO New Module", 8, ""),
         (p["department"], p["programme"], p["level"], p["semester"], "DEMO-NEW2", "DEMO Next Module", "", "DEMO-NEW1"),
@@ -134,7 +134,7 @@ def test_clean_upload_goes_live_moves_resources_and_can_be_undone(app, hod, seed
         assert student.academic_year.label == "2031/2032" and student.academic_year.is_current
         assert Module.query.filter_by(semester_id=student.semester_id, is_active=True).count() == 2
 
-    assert hod.post("/department/prospectus/undo").status_code == 302
+    assert admin.post("/admin/prospectus/undo").status_code == 302
     with app.app_context():
         assert db.session.get(CurriculumVersion, version.id).status == "undone"
         assert db.session.get(Module, p["module_id"]).is_published
@@ -144,20 +144,20 @@ def test_clean_upload_goes_live_moves_resources_and_can_be_undone(app, hod, seed
         assert db.session.get(User, p["student_id"]).academic_year.label != "2031/2032"
 
 
-def test_result_page_shows_the_report(app, hod, seeded_paths, live_restored):
+def test_result_page_shows_the_report(app, admin, hod, seeded_paths, live_restored):
     p = seeded_paths
-    title = _upload(hod, _csv([(p["department"], p["programme"], p["level"], p["semester"], p["code"],
+    title = _upload(admin, _csv([(p["department"], p["programme"], p["level"], p["semester"], p["code"],
                                 "DEMO Kept Module", 10, "")]))
     version = _version(app, title)
-    page = hod.get(f"/department/prospectus/{version.id}")
+    page = admin.get(f"/admin/prospectus/{version.id}")
     assert page.status_code == 200 and b"Carried over" in page.data
     assert b"What went live" in page.data and p["programme"].encode() in page.data
     assert hod.get("/department/curriculum").data.count(b"DEMO Kept Module") == 1
 
 
-def test_shared_code_without_a_programme_match_needs_placing(app, hod, seeded_paths, live_restored):
+def test_shared_code_without_a_programme_match_needs_placing(app, admin, seeded_paths, live_restored):
     p = seeded_paths
-    title = _upload(hod, _csv([
+    title = _upload(admin, _csv([
         ("DEMO Dept A", "DEMO Programme A", 4, 1, p["code"], "DEMO Shared Module", 10, ""),
         ("DEMO Dept B", "DEMO Programme B", 4, 1, p["code"], "DEMO Shared Module", 10, ""),
     ]))
@@ -176,36 +176,36 @@ def test_shared_code_without_a_programme_match_needs_placing(app, hod, seeded_pa
     (HEADER.encode() + b"DEMO Dept,DEMO Prog,4,,1,,DEMO Nameless Code,core,,,\n", "demo.csv", "module code is required"),
     (HEADER.encode() + b"DEMO Dept,DEMO Prog,4,,1,DEMO-P1,DEMO Loop,core,,DEMO-P9,\n", "demo.csv", "not in this prospectus"),
 ])
-def test_a_bad_read_publishes_nothing(app, hod, content, filename, message):
+def test_a_bad_read_publishes_nothing(app, admin, content, filename, message):
     before = _live_snapshot(app)
-    title = _upload(hod, content, filename)
+    title = _upload(admin, content, filename)
     with app.app_context():
         version = _version(app, title)
         assert version.status == "failed"
         assert message in " ".join(issue["message"] for issue in version.validation_errors)
     assert _live_snapshot(app) == before
-    assert message.encode() in hod.get(f"/department/prospectus/{version.id}").data
+    assert message.encode() in admin.get(f"/admin/prospectus/{version.id}").data
 
 
-def test_large_change_needs_confirmation(app, hod):
+def test_large_change_needs_confirmation(app, admin):
     before = _live_snapshot(app)
-    title = _upload(hod, _csv([("DEMO Dept", "DEMO Prog", 4, 1, "DEMO-L1", "DEMO Lone Module", 5, "")]), large=False)
+    title = _upload(admin, _csv([("DEMO Dept", "DEMO Prog", 4, 1, "DEMO-L1", "DEMO Lone Module", 5, "")]), large=False)
     with app.app_context():
         errors = _version(app, title).validation_errors
         assert any("would retire" in issue["message"] for issue in errors)
     assert _live_snapshot(app) == before
 
 
-def test_same_file_twice_is_refused(app, hod, live_restored):
+def test_same_file_twice_is_refused(app, admin, live_restored):
     content = _csv([("DEMO Dept", "DEMO Prog", 4, 1, "DEMO-S1", "DEMO Same Module", 5, "")])
-    assert _version(app, _upload(hod, content)).status == "published"
-    second = _version(app, _upload(hod, content))
+    assert _version(app, _upload(admin, content)).status == "published"
+    second = _version(app, _upload(admin, content))
     assert second.status == "failed" and "already live" in second.validation_errors[0]["message"]
 
 
-def test_undo_is_refused_once_lecturers_add_content(app, hod, seeded_paths, live_restored):
+def test_undo_is_refused_once_lecturers_add_content(app, admin, seeded_paths, live_restored):
     p = seeded_paths
-    title = _upload(hod, _csv([(p["department"], p["programme"], p["level"], p["semester"], p["code"],
+    title = _upload(admin, _csv([(p["department"], p["programme"], p["level"], p["semester"], p["code"],
                                 "DEMO Busy Module", 10, "")]))
     with app.app_context():
         version = _version(app, title)
@@ -220,25 +220,25 @@ def test_undo_is_refused_once_lecturers_add_content(app, hod, seeded_paths, live
         db.session.commit()
 
 
-def test_upload_keeps_the_original_file(app, hod):
-    title = _upload(hod, b"%PDF-1.4\n%%EOF", "kept.pdf")
+def test_upload_keeps_the_original_file(app, admin):
+    title = _upload(admin, b"%PDF-1.4\n%%EOF", "kept.pdf")
     with app.app_context():
         document = ProspectusDocument.query.filter_by(title=title).one()
         assert document.sha256 and document.extraction_status == "failed"
         version_id = _version(app, title).id
-    download = hod.get(f"/department/prospectus/{version_id}/file")
+    download = admin.get(f"/admin/prospectus/{version_id}/file")
     assert download.status_code == 200 and download.data.startswith(b"%PDF")
 
 
-def test_invalid_file_type_is_rejected(app, hod):
-    response = hod.post("/department/prospectus", data={
+def test_invalid_file_type_is_rejected(app, admin):
+    response = admin.post("/admin/prospectus", data={
         "title": "DEMO bad type", "academic_year_label": "2031/2032",
         "file": (io.BytesIO(b"MZ\x90\x00"), "prospectus.exe"),
     }, content_type="multipart/form-data", follow_redirects=True)
     assert b"PDF, DOCX, TXT, MD or CSV" in response.data
 
 
-def test_text_extraction_reads_structure(app, hod):
+def test_text_extraction_reads_structure(app, admin):
     text = (
         "DEPARTMENT OF DEMO STUDIES\n"
         "Ordinary Diploma in DEMO Technology\n"
@@ -257,7 +257,7 @@ def test_text_extraction_reads_structure(app, hod):
     assert candidates[2]["semester"] == 2 and candidates[2]["credits"] == "9.5"
     assert candidates[1]["credits"] is None
 
-    title = _upload(hod, text.encode(), "prospectus.txt", large=False)
+    title = _upload(admin, text.encode(), "prospectus.txt", large=False)
     with app.app_context():
         version = _version(app, title)
         assert len(version.entries) == 3 and {e.origin for e in version.entries} == {"extracted"}
@@ -323,9 +323,9 @@ def test_reader_follows_the_dit_prospectus_layout():
     assert len(notes) == 1 and "General Course Programme" in notes[0].title()
 
 
-def test_whole_prospectus_is_read_not_just_its_opening(app, hod, live_restored):
+def test_whole_prospectus_is_read_not_just_its_opening(app, admin, live_restored):
     padding = "DEMO introduction text that fills the opening chapters.\n" * 3000
-    title = _upload(hod, (padding + DIT_LAYOUT).encode(), "prospectus.txt", large=True)
+    title = _upload(admin, (padding + DIT_LAYOUT).encode(), "prospectus.txt", large=True)
     with app.app_context():
         version = _version(app, title)
         assert version.status == "published", version.validation_errors
@@ -437,7 +437,7 @@ def test_docx_tables_keep_their_rows_and_place(tmp_path):
     assert extract_text(str(path), "docx") == "Semester I\nDMO 04111 DEMO Drawing 6\nSemester II"
 
 
-def test_bundled_prospectus_loads_once(app, hod, tmp_path, live_restored):
+def test_bundled_prospectus_loads_once(app, admin, tmp_path, live_restored):
     (tmp_path / "dit_prospectus_2031_2032.txt").write_text(DIT_LAYOUT, encoding="utf-8")
     with app.app_context():
         version = svc.load_bundled_prospectus(str(tmp_path))
@@ -449,7 +449,7 @@ def test_bundled_prospectus_loads_once(app, hod, tmp_path, live_restored):
         svc.undo_last_publish(user=None)
         db.session.commit()
         assert svc.load_bundled_prospectus(str(tmp_path)) is None, "an undone prospectus is never reloaded"
-    page = hod.get(f"/department/prospectus/{version_id}")
+    page = admin.get(f"/admin/prospectus/{version_id}")
     assert b"Notes from the read" in page.data and b"Programmes not read" in page.data
     assert b"NTA 7 \xc2\xb7 Higher Diploma" in page.data
 
@@ -465,14 +465,14 @@ def test_shipped_prospectus_is_the_one_the_reader_was_tuned_on():
     assert all(row["nta_level"] and row["semester"] for row in rows)
 
 
-def test_students_and_lecturers_get_no_dead_links_after_modules_retire(app, hod, student, lecturer, seeded_paths,
+def test_students_and_lecturers_get_no_dead_links_after_modules_retire(app, admin, student, lecturer, seeded_paths,
                                                                        live_restored):
     p = seeded_paths
     with app.app_context():
         retired = [r.id for r in Resource.query.filter(Resource.module_id != p["module_id"],
                                                        Resource.verification_status == "verified")]
     student.get(f"/resource/{retired[0]}")  # history that points at a module about to retire
-    _upload(hod, _csv([(p["department"], p["programme"], p["level"], p["semester"], p["code"],
+    _upload(admin, _csv([(p["department"], p["programme"], p["level"], p["semester"], p["code"],
                         "DEMO Kept Module", 10, "")]))
     page = student.get("/dashboard").get_data(as_text=True)
     assert not any(f'href="/resource/{rid}"' in page for rid in retired)

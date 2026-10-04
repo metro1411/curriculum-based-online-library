@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ module.name }} | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container container-narrow fade-in">
+  <div class="page-header"><span class="page-header__eyebrow">{{ module.academic_year.label if module.academic_year else 'Legacy curriculum' }} · {{ module.semester.nta_level.programme.name }} · {{ module.semester.nta_level.label }} · {{ module.semester.label }}</span><h1>Edit curriculum module</h1><p>Correct legacy codes, clarify module type and control publication without changing historical relationships.</p></div>
+  <form method="POST" class="card card-pad"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-grid form-grid--two"><div class="form-group"><label class="form-label" for="edit-module-code">Module code</label><input class="form-input" id="edit-module-code" name="code" value="{{ module.code or '' }}" maxlength="30" required></div><div class="form-group"><label class="form-label" for="edit-module-type">Module type</label><select class="form-select" id="edit-module-type" name="module_type" required>{% for key, label in module_types %}<option value="{{ key }}" {{ 'selected' if module.module_type == key }}>{{ label }}</option>{% endfor %}</select></div></div>
+    <div class="form-group"><label class="form-label" for="edit-module-name">Module name</label><input class="form-input" id="edit-module-name" name="name" value="{{ module.name }}" maxlength="200" required></div>
+    <div class="form-grid form-grid--two"><div class="form-group"><label class="form-label" for="edit-module-cohort">Class or cohort</label><input class="form-input" id="edit-module-cohort" name="cohort_label" value="{{ module.cohort_label or '' }}" maxlength="80"></div><div class="form-group"><label class="form-label" for="edit-module-status">Publication status</label><select class="form-select" id="edit-module-status" name="publication_status"><option value="draft" {{ 'selected' if module.publication_status == 'draft' }}>Draft</option><option value="published" {{ 'selected' if module.publication_status == 'published' }}>Published</option><option value="archived" {{ 'selected' if module.publication_status == 'archived' }}>Archived</option></select></div></div>
+    <div class="form-group"><label class="form-label" for="edit-module-description">Description</label><textarea class="form-textarea" id="edit-module-description" name="description" rows="4">{{ module.description or '' }}</textarea></div>
+    <div class="flex gap-3"><button class="btn btn-primary">Save module</button><a class="btn btn-ghost" href="{{ url_for('department.curriculum') }}">Cancel</a></div>
+  </form>
+</div>
+{% endblock %}

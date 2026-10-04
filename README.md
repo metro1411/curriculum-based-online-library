@@ -6,17 +6,20 @@ A learning workspace for DIT. The prospectus decides the curriculum, lecturers p
 
 | Role | Does |
 | --- | --- |
-| Head of Department | Uploads the prospectus, which sets every module in every department. Approves lecturers and module claims. Places students. |
+| Curriculum Administrator | Uploads the prospectus, which sets every module in every department. Places students in any department. Reads the full audit log. |
+| Head of Department | Adds, edits and archives modules and manages academic years in their department. Approves lecturers and module claims. Places their students. |
 | Lecturer | Claims modules, publishes topics and resources, posts announcements, answers anonymous questions. |
 | Student | Browses their modules, studies resources, asks lecturers, and uses DIT AI. |
 
 ## How the prospectus works
 
-1. The HOD uploads a text PDF, DOCX or the CSV template (`docs/samples/`) on **Prospectus**.
+1. The Curriculum Administrator uploads a text PDF, DOCX or the CSV template (`docs/samples/`) on **Prospectus**.
 2. The system reads it and checks every module line.
 3. A clean read goes live at once and replaces all live modules. Old modules are archived, never deleted. Resources, lecturers, topics and student placements follow the module code.
-4. Any problem publishes nothing and shows the HOD what to fix.
+4. Any problem publishes nothing and shows what to fix.
 5. The latest publish can be undone.
+
+Between uploads, each HOD can add, edit or archive modules in their department. The next upload replaces the live modules again.
 
 The DIT Prospectus 2025/2026 ships in `bundled_prospectus/` and is published automatically on first start (1,501 modules in 32 programmes). It is loaded once: an undone or replaced prospectus is never reloaded. `flask load-prospectus` does the same by hand.
 
@@ -43,6 +46,8 @@ First launch creates demo accounts:
 
 Create the HOD from **Create account** with a `5000…` staff number and `HOD_ACTIVATION_CODE`.
 
+Create the Curriculum Administrator from **Create account** with a `9000…` staff number and `ADMIN_ACTIVATION_CODE` (the HOD code works when this is not set). It opens at `/admin`. `flask create-curriculum-admin --email … --name …` does the same from a shell.
+
 ## Configuration
 
 | Variable | Purpose |
@@ -50,6 +55,7 @@ Create the HOD from **Create account** with a `5000…` staff number and `HOD_AC
 | `SECRET_KEY`, `DATABASE_URL` | Required in production |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Private file storage in production |
 | `HOD_ACTIVATION_CODE` | Activates HOD accounts (16+ characters) |
+| `ADMIN_ACTIVATION_CODE` | Activates Curriculum Administrator accounts; falls back to `HOD_ACTIVATION_CODE` |
 | `LOAD_BUNDLED_PROSPECTUS` | `1` (default) publishes `bundled_prospectus/` on first start; `0` skips it |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | DIT AI (default model `gemini-3.5-flash`) |
 | `GEMINI_ENABLE_WEB_GROUNDING` | `1` allows labelled Google Search help when no DIT source matches |
@@ -64,7 +70,7 @@ Deployment: [DEPLOY_RENDER.md](DEPLOY_RENDER.md).
 
 - `curriculum_service.py`: prospectus upload, reading, checks, publish and undo.
 - `curriculum_context.py`, `ai_engine.py`: DIT AI retrieval, prompts and answer rendering.
-- `routes/`: student, lecturer, department (HOD), AI, API, auth and notification endpoints.
+- `routes/`: student, lecturer, department (HOD), admin (Curriculum Administrator), AI, API, auth and notification endpoints.
 - `models.py`: data model. Schema changes are idempotent start-up migrations in `app.py`.
 - `academic_context.py`, `integrations/soma.py`: student placement and the SOMA boundary.
 - `navigation.py`: each role's menu, shared by the sidebar, mobile drawer and command palette.

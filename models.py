@@ -8,7 +8,7 @@ Curriculum hierarchy (mirrors the DIT / NTA academic structure):
     Department -> Programme -> NtaLevel -> Semester -> Module -> Resource
 
 Supporting models:
-    User            students, lecturers and heads of department
+    User            students, lecturers, heads of department and curriculum administrators
 
 Curriculum / prospectus backbone (see docs/CURRICULUM_ARCHITECTURE.md):
     ProspectusDocument      the original uploaded prospectus, kept for audit
@@ -65,7 +65,7 @@ class User(UserMixin, db.Model):
     registration_number = db.Column(db.String(10), unique=True, nullable=True, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
 
-    # 'student', 'lecturer' or 'department_head'
+    # 'student', 'lecturer', 'department_head' or 'admin' (curriculum administrator)
     role = db.Column(db.String(20), nullable=False, default="student", index=True)
     # Pending lecturer accounts cannot sign in or publish until the department
     # head reviews the request. Existing accounts are treated as active.
@@ -113,6 +113,11 @@ class User(UserMixin, db.Model):
     @property
     def is_department_head(self):
         return self.role == "department_head"
+
+    @property
+    def is_admin(self):
+        """Curriculum administrator: uploads the prospectus for every department."""
+        return self.role == "admin"
 
     @property
     def is_pending(self):
@@ -881,7 +886,7 @@ class CurriculumVersion(db.Model):
     )
     last_validation_json = db.Column(db.Text, nullable=True)
     validated_at = db.Column(db.DateTime, nullable=True)
-    # Outcome per module (carried, moved, new, retired, unplaced) for the HOD.
+    # Outcome per module (carried, moved, new, retired, unplaced) for the administrator.
     allocation_report_json = db.Column(db.Text, nullable=True)
     # Every live-row change made by the publish, so it can be undone exactly.
     undo_journal_json = db.Column(db.Text, nullable=True)
@@ -1039,7 +1044,7 @@ class ModulePrerequisite(db.Model):
 
 ACADEMIC_CONTEXT_SOURCES = {
     "self_registration": "Self-registered at sign-up",
-    "internal_admin": "Set by the Head of Department",
+    "internal_admin": "Set by the HOD or Curriculum Administrator",
     "soma": "Synchronised from SOMA",
 }
 

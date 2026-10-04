@@ -35,6 +35,7 @@ Open **Render Dashboard -> your Smart DIT web service -> Environment**. Keep all
 | Key | What to enter |
 | --- | --- |
 | `HOD_ACTIVATION_CODE` | A unique private secret of at least 16 characters. It is used only to create the first Head of Department account. |
+| `ADMIN_ACTIVATION_CODE` | Optional. A private secret for creating Curriculum Administrator accounts. When it is not set, the HOD code is used. |
 
 Also confirm these existing values are present and correct:
 
@@ -59,7 +60,7 @@ Do not put any of those secret values in client-side JavaScript, public screensh
 2. Open the **Logs** tab. A successful deployment reaches a healthy service and `GET /health` returns `200`.
 3. The application creates only missing tables and columns at startup. It does not reset the existing database. The upload compatibility migration also removes the obsolete `is_demo_content` column that previously caused lecturer upload failures.
 4. The first start publishes the bundled DIT Prospectus 2025/2026 (log line `Published the bundled prospectus: 1501 modules.`). It happens once and needs no setting. `gunicorn.conf.py` gives the worker two minutes to start so this first publish is not cut off on a slow database.
-5. Former Curriculum Administrator accounts become Heads of Department. One without a department is switched off; create the HOD account in step 4 below instead.
+5. Curriculum Administrator accounts that an earlier release switched off are switched back on, with their old email and password.
 6. If Render reports `Missing production configuration: HOD_ACTIVATION_CODE`, return to **Environment**, add the value above, save it, and deploy again.
 
 ## 4. Activate the department workflow once
@@ -70,6 +71,7 @@ Do not put any of those secret values in client-side JavaScript, public screensh
 4. A lecturer registers with an 8-10 digit numeric ID beginning with `1403`. Their account remains pending.
 5. The Head of Department opens **Lecturer requests**, chooses the lecturer's permitted modules, and approves the request.
 6. A student registers with an 8-10 digit numeric ID beginning with `2403`, chooses their programme, NTA level, and semester, then signs in. The dashboard, profile, AI chat and progress data are private to that student.
+7. To create a Curriculum Administrator, use an unused ID beginning with `9000` (for example `90001234`) and enter `ADMIN_ACTIVATION_CODE` (or the HOD code if that is not set). The account opens the Curriculum workspace at `/admin`, where the prospectus is uploaded.
 
 The HOD activation code is not a normal login credential. Keep it private; after the first HOD account exists, the application prevents a second Head of Department account for Electrical Engineering.
 
