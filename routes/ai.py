@@ -154,6 +154,7 @@ def assistant():
                 "content": m.content,
                 "sources": archive_sources,
                 "web_sources": web_sources,
+                "prospectus_sources": ai_engine.prospectus_sources_from_json(m.sources_json),
                 "general_guidance": m.general_guidance,
                 "context_label": m.context_label,
                 "context_label_text": curriculum_context.CONTEXT_LABELS.get(m.context_label or ""),
@@ -196,6 +197,13 @@ def ask():
     if response_style not in {"guided", "simple", "detailed", "exam"}:
         response_style = "guided"
 
+    attachment = None
+    if data.get("attachment"):
+        try:
+            attachment = ai_engine.read_attachment(data["attachment"])
+        except ValueError as error:
+            return jsonify(ok=False, error=str(error)), 400
+        question = question or "Explain this attachment."
     if not question:
         return jsonify(ok=False, error="Please type a question or request first."), 400
     if len(question) > 4000:
@@ -229,11 +237,13 @@ def ask():
 
     result = ai_engine.ask(
         mode=mode, question=question, module=module, resource=resource,
-        history=history, student=current_user, response_style=response_style,
+        history=history, student=current_user, response_style=response_style, attachment=attachment,
     )
 
     if not result["ok"]:
         return jsonify(ok=False, error=result["error"]), 503
+    if attachment is not None:
+        question = f"{question}\n\n[Attached: {attachment[2]}]"
 
     if conversation is None:
         conversation = AIConversation(
@@ -253,7 +263,8 @@ def ask():
     assistant_message = AIMessage(
         conversation_id=conversation.id, role="assistant",
         content=result["answer_text"], content_html=result["answer_html"],
-        sources_json=ai_engine.sources_to_json(result["sources"], result.get("web_sources")),
+        sources_json=ai_engine.sources_to_json(result["sources"], result.get("web_sources"),
+                                                result.get("prospectus_sources")),
         general_guidance=result["general_guidance"],
         context_label=result.get("context_label"),
     )
@@ -290,6 +301,7 @@ def ask():
         context_label_text=result.get("context_label_text"),
         curriculum_context=result.get("curriculum_context"),
         curriculum_sources=result.get("curriculum_sources", []),
+        prospectus_sources=result.get("prospectus_sources", []),
     )
 
 
@@ -330,7 +342,8 @@ def regenerate():
     AIAnswerFeedback.query.filter_by(message_id=assistant_message.id).delete()
     assistant_message.content = result["answer_text"]
     assistant_message.content_html = result["answer_html"]
-    assistant_message.sources_json = ai_engine.sources_to_json(result["sources"], result.get("web_sources"))
+    assistant_message.sources_json = ai_engine.sources_to_json(result["sources"], result.get("web_sources"),
+                                                result.get("prospectus_sources"))
     assistant_message.general_guidance = result["general_guidance"]
     assistant_message.context_label = result.get("context_label")
     conversation.updated_at = utcnow()
@@ -349,6 +362,7 @@ def regenerate():
         context_label_text=result.get("context_label_text"),
         curriculum_context=result.get("curriculum_context"),
         curriculum_sources=result.get("curriculum_sources", []),
+        prospectus_sources=result.get("prospectus_sources", []),
     )
 
 

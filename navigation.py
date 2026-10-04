@@ -98,8 +98,11 @@ _LECTURER = (
 _DEPARTMENT_HEAD = (
     NavSection("Department", (
         NavItem("Overview", "department.dashboard", "home", hint="Department health at a glance"),
-        NavItem("Curriculum", "department.curriculum", "layers",
-                matches=("department.edit_module",), hint="Academic years and modules"),
+        NavItem("Prospectus", "department.prospectus", "upload",
+                matches=("department.prospectus_*",), hint="Upload the prospectus that sets every module"),
+        NavItem("Curriculum", "department.curriculum", "layers", hint="Live modules in your department"),
+        NavItem("Students", "department.students", "award",
+                matches=("department.student_*",), hint="Placement and registered modules"),
         NavItem("Lecturers", "department.lecturers", "users",
                 matches=("department.lecturer_requests",), hint="Verification and access"),
         NavItem("Module claims", "department.module_claims", "check-circle",
@@ -111,24 +114,9 @@ _DEPARTMENT_HEAD = (
 )
 
 
-_ADMIN = (
-    NavSection("Curriculum", (
-        NavItem("Overview", "admin.dashboard", "home", hint="Curriculum versions and integrations"),
-        NavItem("Prospectus", "admin.prospectus", "upload",
-                matches=("admin.prospectus_file",), hint="Upload and extract a prospectus"),
-        NavItem("Student context", "admin.students", "users",
-                matches=("admin.student_context",), hint="Programme, semester and registered modules"),
-        NavItem("Audit log", "admin.audit_log", "shield-check", hint="Curriculum and role changes"),
-    )),
-    _ACCOUNT,
-)
-
-
 def sections_for(user) -> tuple[NavSection, ...]:
     if not getattr(user, "is_authenticated", False):
         return ()
-    if getattr(user, "is_admin", False):
-        return _ADMIN
     if user.is_department_head:
         return _DEPARTMENT_HEAD
     if user.is_lecturer:
@@ -148,8 +136,6 @@ def search_target(user) -> dict | None:
 
 
 def role_label(user) -> str:
-    if getattr(user, "is_admin", False):
-        return "Curriculum Administrator"
     if user.is_department_head:
         return "Head of Department"
     if user.is_lecturer:

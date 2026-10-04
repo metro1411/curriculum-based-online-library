@@ -504,14 +504,35 @@
     var followups = root.querySelector("[data-followups]");
     var followupList = root.querySelector("[data-followup-list]");
     var title = root.querySelector("[data-chat-title]");
+    var attachInput = root.querySelector("[data-chat-attach]");
+    var attachChip = root.querySelector("[data-chat-attachment]");
     var state = {
       conversationId: root.dataset.conversationId ? Number(root.dataset.conversationId) : null,
       moduleId: moduleSelect ? moduleSelect.value || null : null,
       resourceId: root.dataset.resourceId ? Number(root.dataset.resourceId) : null,
       mode: root.dataset.selectedMode || "explain",
       responseStyle: styleSelect ? styleSelect.value || "guided" : "guided",
+      attachment: null,
       generating: false
     };
+    function clearAttachment() {
+      state.attachment = null;
+      if (attachInput) attachInput.value = "";
+      if (attachChip) attachChip.hidden = true;
+    }
+    function chooseAttachment(file) {
+      if (!file) return;
+      if (["image/png", "image/jpeg", "image/webp", "application/pdf"].indexOf(file.type) === -1) { window.showToast("Attach a PNG, JPEG or WebP image, or a PDF.", "warning"); clearAttachment(); return; }
+      if (file.size > 8 * 1024 * 1024) { window.showToast("Attachments must be 8 MB or smaller.", "warning"); clearAttachment(); return; }
+      var reader = new FileReader();
+      reader.onload = function () {
+        state.attachment = { name: file.name, mime: file.type, data: String(reader.result).split(",")[1] || "" };
+        attachChip.querySelector("[data-chat-attachment-name]").textContent = file.name;
+        attachChip.hidden = false;
+      };
+      reader.onerror = function () { window.showToast("That file could not be read.", "error"); clearAttachment(); };
+      reader.readAsDataURL(file);
+    }
 
     function scrollToBottom() { if (chat) chat.scrollTop = chat.scrollHeight; }
     function resizeInput() { if (input) { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 180) + "px"; } }
@@ -600,10 +621,16 @@
         badge.textContent = context.text;
         body.appendChild(badge);
       }
-      if (generalGuidance && label !== "outside_curriculum") {
+      if (generalGuidance && label !== "outside_curriculum" && label !== "dit_curriculum") {
         var notice = document.createElement("div"); notice.className = "general-guidance-note";
         notice.innerHTML = "<strong>General guidance</strong><span>No directly relevant approved lecturer resource was found for this question. This answer uses general academic knowledge" + ((webSources && webSources.length) ? " supported by supplementary web research" : "") + "; confirm critical course details with your lecturer.</span>";
         body.appendChild(notice);
+      }
+      var prospectus = (context && Array.isArray(context.prospectus)) ? context.prospectus : [];
+      if (prospectus.length) {
+        var pWrap = document.createElement("div"); pWrap.className = "chat-sources chat-sources--prospectus"; pWrap.innerHTML = "<span>From the DIT prospectus</span>";
+        prospectus.forEach(function (source) { var chip = document.createElement("span"); chip.className = "prospectus-chip"; chip.textContent = source.title; pWrap.appendChild(chip); });
+        body.appendChild(pWrap);
       }
       if (sources && sources.length) {
         var wrap = document.createElement("div"); wrap.className = "chat-sources"; wrap.innerHTML = "<span>Verified lecturer resources used</span>";
@@ -632,17 +659,19 @@
     }
     function setGenerating(value) { state.generating = value; if (send) send.disabled = value; }
     function sendMessage(message) {
-      if (!message || state.generating) return;
-      hideEmpty(); setFollowups([]); createUserTurn(message); setGenerating(true);
+      var attachment = state.attachment;
+      if ((!message && !attachment) || state.generating) return;
+      hideEmpty(); setFollowups([]); createUserTurn((message || "Explain this attachment.") + (attachment ? "\n[Attached: " + attachment.name + "]" : "")); setGenerating(true);
       if (input) { input.value = ""; resizeInput(); }
+      clearAttachment();
       var typing = typingIndicator();
       // Generated answers can take a while; allow two minutes before giving up.
-      requestJSON(root.dataset.askUrl, { timeout: 120000, body: { message: message, mode: state.mode, module_id: state.moduleId || null, resource_id: state.resourceId || null, conversation_id: state.conversationId, response_style: state.responseStyle } })
+      requestJSON(root.dataset.askUrl, { timeout: 120000, body: { message: message, attachment: attachment, mode: state.mode, module_id: state.moduleId || null, resource_id: state.resourceId || null, conversation_id: state.conversationId, response_style: state.responseStyle } })
         .then(function (result) {
           typing.remove();
           if (!result.ok) { createAssistantTurn("<p>" + escapeHtml(result.data.error || "I could not complete that response.") + "</p>", "", [], [], false); return; }
           var wasNew = !state.conversationId; state.conversationId = result.data.conversation_id;
-          createAssistantTurn(result.data.answer_html, result.data.message_id, result.data.sources, result.data.web_sources, result.data.general_guidance, { label: result.data.context_label, text: result.data.context_label_text });
+          createAssistantTurn(result.data.answer_html, result.data.message_id, result.data.sources, result.data.web_sources, result.data.general_guidance, { label: result.data.context_label, text: result.data.context_label_text, prospectus: result.data.prospectus_sources });
           setFollowups(result.data.followups);
           if (wasNew) { addConversation(state.conversationId, result.data.conversation_title); if (title) title.textContent = result.data.conversation_title; }
         })
@@ -651,6 +680,7 @@
           createAssistantTurn("<p>" + escapeHtml(error.message) + "</p>", "", [], [], false);
           // Give the unsent question back so it isn't lost on a dropped connection.
           if (input && !input.value) { input.value = message; resizeInput(); }
+          if (attachment && !state.attachment && attachChip) { state.attachment = attachment; attachChip.querySelector("[data-chat-attachment-name]").textContent = attachment.name; attachChip.hidden = false; }
         })
         .finally(function () { setGenerating(false); if (input) input.focus(); });
     }
@@ -694,7 +724,7 @@
           typing.remove(); if (!result.ok) { window.showToast(result.data.error || "Unable to regenerate the answer.", "error"); return; }
           var body = turn.querySelector(".chat-turn__body"); body.querySelector(".chat-bubble--assistant").innerHTML = result.data.answer_html;
           turn.dataset.messageId = result.data.message_id; body.querySelector(".ai-feedback").outerHTML = feedbackControls(result.data.message_id);
-          body.querySelectorAll(".chat-sources, .general-guidance-note, [data-context-label]").forEach(function (node) { node.remove(); }); appendMeta(body, result.data.sources, result.data.web_sources, result.data.general_guidance, { label: result.data.context_label, text: result.data.context_label_text }); decorateCodeBlocks(turn); setFollowups(result.data.followups); scrollToBottom();
+          body.querySelectorAll(".chat-sources, .general-guidance-note, [data-context-label]").forEach(function (node) { node.remove(); }); appendMeta(body, result.data.sources, result.data.web_sources, result.data.general_guidance, { label: result.data.context_label, text: result.data.context_label_text, prospectus: result.data.prospectus_sources }); decorateCodeBlocks(turn); setFollowups(result.data.followups); scrollToBottom();
         })
         .catch(function (error) { typing.remove(); window.showToast(error.message, "error"); })
         .finally(function () { setGenerating(false); });
@@ -722,6 +752,11 @@
     });
     root.querySelectorAll(".chat-turn--assistant").forEach(decorateCodeBlocks);
     if (form) form.addEventListener("submit", function (event) { event.preventDefault(); sendMessage((input.value || "").trim()); });
+    if (attachInput) {
+      root.querySelector("[data-chat-attach-button]").addEventListener("click", function () { attachInput.click(); });
+      attachInput.addEventListener("change", function () { chooseAttachment(attachInput.files && attachInput.files[0]); });
+      root.querySelector("[data-chat-attachment-clear]").addEventListener("click", clearAttachment);
+    }
     if (input) { input.addEventListener("input", resizeInput); input.addEventListener("keydown", function (event) { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); } }); resizeInput(); }
     if (moduleSelect) moduleSelect.addEventListener("change", function () { state.moduleId = moduleSelect.value || null; });
     if (styleSelect) styleSelect.addEventListener("change", function () { state.responseStyle = styleSelect.value || "guided"; });

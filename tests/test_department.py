@@ -2,15 +2,15 @@
 
 import pytest
 
-from conftest import db, sign_in, user_id
+from conftest import db
 from models import (
-    AcademicQuestion, AcademicYear, AuditLog, LearningEvent, LecturerAssignment,
-    LecturerRequest, Module, Notification, User,
+    AcademicQuestion, AuditLog, LearningEvent, LecturerAssignment, LecturerRequest, Notification, User,
 )
 
 
 @pytest.mark.parametrize("path", [
-    "/department", "/department/lecturer-requests", "/department/curriculum",
+    "/department", "/department/lecturer-requests", "/department/curriculum", "/department/prospectus",
+    "/department/students",
     "/department/lecturers", "/department/module-claims", "/department/audit-log",
 ])
 def test_hod_pages_render(hod, path):
@@ -53,19 +53,9 @@ def test_hod_approval_activates_lecturer(app, approved_lecturer, seeded):
         ).first()
 
 
-def test_hod_module_edit_keeps_it_published(app, hod, hod_module_id):
-    assert hod.get(f"/department/curriculum/modules/{hod_module_id}/edit").status_code == 200
-    with app.app_context():
-        code = db.session.get(Module, hod_module_id).code
-    response = hod.post(f"/department/curriculum/modules/{hod_module_id}/edit", data={
-        "code": code, "name": "Academic Workflow Verification Updated",
-        "module_type": "general_studies", "publication_status": "published",
-        "cohort_label": "EE5-QA", "description": "Updated without replacing its academic-year record.",
-    })
-    assert response.status_code == 302
-    with app.app_context():
-        module = db.session.get(Module, hod_module_id)
-        assert module.name.endswith("Updated") and module.is_published
+def test_hod_can_no_longer_hand_edit_modules(hod, hod_module_id):
+    assert hod.get(f"/department/curriculum/modules/{hod_module_id}/edit").status_code == 404
+    assert hod.post("/department/curriculum", data={"action": "module"}).status_code == 405
 
 
 def test_module_claim_requires_hod_approval_for_api_access(app, hod, approved_lecturer, hod_module_id):

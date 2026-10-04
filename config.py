@@ -141,6 +141,8 @@ class Config:
     # department-head account can be created. Keep it only in Render's
     # environment variables, never in GitHub or a public form.
     HOD_ACTIVATION_CODE = os.environ.get("HOD_ACTIVATION_CODE", "").strip()
+    # Publish the prospectus shipped in bundled_prospectus on first start.
+    LOAD_BUNDLED_PROSPECTUS = os.environ.get("LOAD_BUNDLED_PROSPECTUS", "1") == "1"
 
     APP_NAME = "Smart DIT Learning Hub"
     APP_TAGLINE = "Learning support, curriculum resources and actionable academic insights."

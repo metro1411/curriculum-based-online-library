@@ -2,48 +2,40 @@
 
 import pytest
 
-from conftest import ADMIN, db, sign_in, user_id
-from models import AuditLog, LecturerAssignment, Module, Resource, User
+from conftest import db, user_id
+from models import CurriculumVersion, LecturerAssignment, Module, Resource, User
 
-ADMIN_PAGES = ["/admin", "/admin/prospectus", "/admin/students", "/admin/audit-log"]
-
-
-@pytest.mark.parametrize("path", ADMIN_PAGES)
-def test_admin_pages_render_for_admin(admin, path):
-    assert admin.get(path).status_code == 200
+HOD_PAGES = ["/department/prospectus", "/department/students", "/department/curriculum"]
 
 
-@pytest.mark.parametrize("path", ADMIN_PAGES)
-def test_students_lecturers_and_hods_cannot_open_admin(student, lecturer, hod, path):
-    for client in (student, lecturer, hod):
+@pytest.mark.parametrize("path", HOD_PAGES)
+def test_hod_pages_render_for_hod(hod, path):
+    assert hod.get(path).status_code == 200
+
+
+@pytest.mark.parametrize("path", HOD_PAGES)
+def test_students_and_lecturers_cannot_open_hod_pages(student, lecturer, path):
+    for client in (student, lecturer):
         assert client.get(path).status_code == 403
 
 
 def test_anonymous_users_are_sent_to_login(client):
-    response = client.get("/admin")
+    response = client.get("/department/prospectus")
     assert response.status_code == 302 and "/login" in response.headers["Location"]
 
 
-def test_only_admin_can_create_or_publish_curriculum(app, student, lecturer, hod):
-    for client in (student, lecturer, hod):
-        assert client.post("/admin/versions", data={
-            "label": "Unauthorised", "academic_year_label": "2050/2051"}).status_code == 403
-        assert client.post("/admin/versions/1/publish").status_code == 403
-        assert client.post("/admin/versions/1/archive").status_code == 403
+def test_only_hod_can_publish_or_undo_a_prospectus(app, student, lecturer):
     with app.app_context():
-        from models import CurriculumVersion
-        assert CurriculumVersion.query.filter_by(label="Unauthorised").first() is None
-
-
-def test_admin_login_lands_on_admin_workspace(app, admin):
-    response = app.test_client().post("/login", data={"identifier": ADMIN[0], "password": ADMIN[1]})
-    assert response.headers["Location"].endswith("/admin/dashboard")
-
-
-def test_admin_creation_is_audited_as_role_change(app, admin):
+        before = CurriculumVersion.query.count()
+    for client in (student, lecturer):
+        assert client.post("/department/prospectus", data={"title": "Unauthorised"}).status_code == 403
+        assert client.post("/department/prospectus/undo").status_code == 403
     with app.app_context():
-        row = AuditLog.query.filter_by(action="role.changed").order_by(AuditLog.id.desc()).first()
-        assert row is not None and '"to": "admin"' in row.details_json
+        assert CurriculumVersion.query.count() == before
+
+
+def test_retired_admin_routes_are_gone(hod):
+    assert hod.get("/admin").status_code == 404
 
 
 def test_students_cannot_open_lecturer_analytics(student, seeded):
@@ -74,34 +66,34 @@ def test_lecturer_cannot_modify_another_lecturers_resource(app, approved_lecture
         assert db.session.get(Resource, resource_id).title == title
 
 
-def test_lecturer_cannot_change_curriculum_structure(lecturer, seeded):
-    assert lecturer.post("/department/curriculum", data={"action": "module"}).status_code == 403
-    assert lecturer.post(f"/department/curriculum/modules/{seeded['module_id']}/archive").status_code == 403
+def test_lecturer_cannot_change_curriculum_structure(lecturer):
+    assert lecturer.get("/department/curriculum").status_code == 403
+    assert lecturer.post("/department/prospectus").status_code == 403
 
 
 def test_students_cannot_read_other_students_context(app, student, new_student):
     other_id = user_id(app, new_student.registration_number)
-    assert student.get(f"/admin/students/{other_id}/context").status_code == 403
+    assert student.get(f"/department/students/{other_id}").status_code == 403
     mine = student.get("/api/v1/me/academic-context").get_json()
     assert mine["ok"] and mine["programme"]
     with app.app_context():
         assert db.session.get(User, other_id).full_name not in str(mine)
 
 
-def test_api_hides_unpublished_versions_from_students(app, admin, student, hod):
-    admin.post("/admin/versions", data={"label": "DEMO hidden draft", "academic_year_label": "2051/2052"})
-    student_view = student.get("/api/v1/curriculum/versions").get_json()["versions"]
-    assert all(v["status"] == "published" for v in student_view)
-    hod_view = hod.get("/api/v1/curriculum/versions").get_json()["versions"]
-    assert any(v["label"] == "DEMO hidden draft" for v in hod_view)
+def test_api_hides_stopped_uploads_from_students(app, student, hod):
     with app.app_context():
-        from models import CurriculumVersion
-        draft_id = CurriculumVersion.query.filter_by(label="DEMO hidden draft").one().id
-    assert student.get(f"/api/v1/curriculum/versions/{draft_id}").status_code == 404
-    assert "entries" in admin.get(f"/api/v1/curriculum/versions/{draft_id}").get_json()["version"]
+        version = CurriculumVersion(label="DEMO stopped upload", academic_year_label="2051/2052", status="failed")
+        db.session.add(version)
+        db.session.commit()
+        stopped_id = version.id
+    student_view = student.get("/api/v1/curriculum/versions").get_json()["versions"]
+    assert all(v["status"] in ("published", "archived") for v in student_view)
+    assert any(v["label"] == "DEMO stopped upload" for v in hod.get("/api/v1/curriculum/versions").get_json()["versions"])
+    assert student.get(f"/api/v1/curriculum/versions/{stopped_id}").status_code == 404
+    assert "entries" in hod.get(f"/api/v1/curriculum/versions/{stopped_id}").get_json()["version"]
 
 
-def test_lecturer_and_admin_cannot_use_student_only_endpoints(lecturer, admin):
+def test_lecturer_and_hod_cannot_use_student_only_endpoints(lecturer, hod):
     assert lecturer.get("/api/v1/me/academic-context").status_code == 403
-    assert admin.get("/api/v1/me/recommendations").status_code == 403
-    assert admin.get("/ai").status_code == 403
+    assert hod.get("/api/v1/me/recommendations").status_code == 403
+    assert hod.get("/ai").status_code == 403

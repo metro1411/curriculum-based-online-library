@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "partials/icons.html" as icons %}
-{% block title %}Coming soon | {{ app_name }}{% endblock %}
+{% block title %}Not available | {{ app_name }}{% endblock %}
 {% block content %}
-<div class="container"><div class="status-page fade-in"><span class="status-page__icon">{{ icons.icon('clock', size=32) }}</span><h1>{{ entity_label }} is coming soon</h1><p>This {{ entity_kind }} is not available in the current learning environment yet. Control Engineering is the fully available module workspace while additional academic areas are prepared.</p><div class="flex flex-wrap justify-center gap-3"><a href="{{ back_url }}" class="btn btn-secondary">{{ icons.icon('arrow-left', size=16) }} Go back</a>{% if section == 'student' %}<a href="{{ url_for('student.dashboard') }}" class="btn btn-primary">Go to dashboard</a>{% else %}<a href="{{ url_for('lecturer.workspace') }}" class="btn btn-primary">Module workspace</a>{% endif %}</div></div></div>
+<div class="container"><div class="status-page fade-in"><span class="status-page__icon">{{ icons.icon('clock', size=32) }}</span><h1>{{ entity_label }} is not available</h1><p>This {{ entity_kind }} is not in the live prospectus.</p><div class="flex flex-wrap justify-center gap-3"><a href="{{ back_url }}" class="btn btn-secondary">{{ icons.icon('arrow-left', size=16) }} Go back</a>{% if section == 'student' %}<a href="{{ url_for('student.dashboard') }}" class="btn btn-primary">Go to dashboard</a>{% else %}<a href="{{ url_for('lecturer.workspace') }}" class="btn btn-primary">Module workspace</a>{% endif %}</div></div></div>
 {% endblock %}

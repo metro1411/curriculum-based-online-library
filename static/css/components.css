@@ -295,7 +295,6 @@
 .topic-row,
 .insight-list-item,
 .request-preview,
-.year-row,
 .module-claim-summary {
   display: flex;
   align-items: center;
@@ -307,14 +306,12 @@
 .topic-row:last-child,
 .insight-list-item:last-child,
 .request-preview:last-child,
-.year-row:last-child,
 .module-claim-summary:last-child { border-bottom: 0; }
 .topic-row small,
 .insight-list-item small,
 .request-preview small,
-.year-row small,
 .module-claim-summary small { display: block; margin-top: 2px; color: var(--text-3); font-size: 0.76rem; }
-.request-preview strong, .year-row strong, .module-claim-summary strong { display: block; }
+.request-preview strong, .module-claim-summary strong { display: block; }
 .topic-row > span {
   min-width: 30px;
   padding: 3px 8px;

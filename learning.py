@@ -5,7 +5,7 @@ downloads and AI requests).  These helpers aggregate that first-party data
 for the student and lecturer dashboards without tracking browser behaviour.
 """
 
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from extensions import db
@@ -285,7 +285,7 @@ def personal_recommendations(student):
         if len(recommendations) >= 3:
             break
     if not recommendations and student.semester:
-        for module in student.semester.modules:
+        for module in (m for m in student.semester.modules if m.is_published):
             resource = next((item for item in module.resources if item.is_verified), None)
             if resource:
                 recommendations.append({

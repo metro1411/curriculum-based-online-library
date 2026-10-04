@@ -9,15 +9,15 @@
     <span class="eyebrow">{{ icons.icon('award', size=15) }} DIT learning environment</span>
     <h1 class="fade-in">Learn with clarity.<br>Progress with <em>purpose</em>.</h1>
     <p class="hero__tagline fade-in">{{ app_tagline }}</p>
-    <p class="hero__desc fade-in">A focused digital learning space connecting module resources, AI-guided study support and learning analytics for students and lecturers.</p>
+    <p class="hero__desc fade-in">Your DIT modules, lecturer resources and an AI tutor that knows the prospectus.</p>
     <div class="hero-actions hero-actions--center slide-up">
       <a href="{{ url_for('auth.register') }}" class="btn btn-primary btn-lg">{{ icons.icon('users', size=18) }} Create account</a>
       <a href="{{ url_for('auth.login') }}" class="btn btn-secondary btn-lg">Sign in {{ icons.icon('arrow-right', size=18) }}</a>
     </div>
     <div class="hero-metrics" aria-label="Platform capabilities">
-      <span><strong>Curriculum-first</strong> learning paths</span>
-      <span><strong>Context-aware</strong> AI support</span>
-      <span><strong>Actionable</strong> study insights</span>
+      <span><strong>Prospectus-driven</strong> modules</span>
+      <span><strong>Curriculum-aware</strong> AI</span>
+      <span><strong>Actionable</strong> insights</span>
     </div>
   </div>
 </section>
@@ -25,13 +25,12 @@
 <section class="section section--surface">
   <div class="container">
     <div class="section-heading-row">
-      <div><span class="section-kicker">One connected experience</span><h2 class="section-title">From learning materials to meaningful next steps</h2></div>
-      <p class="section-desc">Every feature is organised around the module context a student or lecturer has selected.</p>
+      <div><h2 class="section-title">Built around your modules</h2></div>
     </div>
     <div class="feature-grid feature-grid--three">
-      <article class="card feature-card"><span class="feature-card__icon">{{ icons.icon('layers') }}</span><h3>Structured learning</h3><p>Navigate a clear academic path from department through semester and module, with resources and outcomes in one place.</p></article>
-      <article class="card feature-card"><span class="feature-card__icon">{{ icons.icon('sparkles') }}</span><h3>Guided AI assistance</h3><p>Ask in your module context, choose the depth you need and receive clear, worked explanations grounded in lecturer materials.</p></article>
-      <article class="card feature-card"><span class="feature-card__icon">{{ icons.icon('bar-chart') }}</span><h3>Learning intelligence</h3><p>See study consistency, topic progress and recommended actions without turning student learning into a wall of numbers.</p></article>
+      <article class="card feature-card"><span class="feature-card__icon">{{ icons.icon('layers') }}</span><h3>Structured learning</h3><p>Department, programme, level, semester and module, exactly as the live prospectus sets them.</p></article>
+      <article class="card feature-card"><span class="feature-card__icon">{{ icons.icon('sparkles') }}</span><h3>DIT AI</h3><p>Worked explanations grounded in lecturer materials and the prospectus. Attach a photo or PDF to ask about it.</p></article>
+      <article class="card feature-card"><span class="feature-card__icon">{{ icons.icon('bar-chart') }}</span><h3>Learning insights</h3><p>Study consistency, topic progress and the next thing to do.</p></article>
     </div>
   </div>
 </section>

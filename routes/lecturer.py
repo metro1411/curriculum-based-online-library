@@ -37,7 +37,6 @@ from utils import (
 )
 from file_processing import process_resource_text
 from permissions import can_edit_resource, can_view_module_students
-import academic_context
 from storage_backend import StorageError, delete_resource_file, stage_uploaded_file
 
 lecturer_bp = Blueprint("lecturer", __name__, url_prefix="/lecturer")

@@ -58,7 +58,9 @@ Do not put any of those secret values in client-side JavaScript, public screensh
 1. In Render, choose **Manual Deploy -> Deploy latest commit**, or wait for the connected GitHub branch to deploy automatically.
 2. Open the **Logs** tab. A successful deployment reaches a healthy service and `GET /health` returns `200`.
 3. The application creates only missing tables and columns at startup. It does not reset the existing database. The upload compatibility migration also removes the obsolete `is_demo_content` column that previously caused lecturer upload failures.
-4. If Render reports `Missing production configuration: HOD_ACTIVATION_CODE`, return to **Environment**, add the value above, save it, and deploy again.
+4. The first start publishes the bundled DIT Prospectus 2025/2026 (log line `Published the bundled prospectus: 1501 modules.`). It happens once and needs no setting. `gunicorn.conf.py` gives the worker two minutes to start so this first publish is not cut off on a slow database.
+5. Former Curriculum Administrator accounts become Heads of Department. One without a department is switched off; create the HOD account in step 4 below instead.
+6. If Render reports `Missing production configuration: HOD_ACTIVATION_CODE`, return to **Environment**, add the value above, save it, and deploy again.
 
 ## 4. Activate the department workflow once
 

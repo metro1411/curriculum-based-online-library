@@ -20,25 +20,25 @@ CHUNK_SIZE = 900
 CHUNK_OVERLAP = 120
 
 
-def extract_text(filepath, ext):
+def extract_text(filepath, ext, max_chars=MAX_EXTRACT_CHARS):
     """Return extracted plain text for a resource file, or '' if not possible."""
     ext = (ext or "").lower()
     try:
         if ext == "pdf":
-            return _extract_pdf(filepath)
+            return _extract_pdf(filepath, max_chars)
         if ext == "docx":
-            return _extract_docx(filepath)
+            return _extract_docx(filepath, max_chars)
         if ext == "pptx":
-            return _extract_pptx(filepath)
+            return _extract_pptx(filepath, max_chars)
         if ext in ("txt", "md"):
-            return _extract_plain(filepath)
+            return _extract_plain(filepath, max_chars)
     except Exception:
         logger.exception("Text extraction failed for %s (%s)", filepath, ext)
         return ""
     return ""
 
 
-def _extract_pdf(filepath):
+def _extract_pdf(filepath, max_chars):
     from pypdf import PdfReader
 
     text_parts = []
@@ -50,25 +50,37 @@ def _extract_pdf(filepath):
             page_text = ""
         if page_text:
             text_parts.append(page_text)
-        if sum(len(t) for t in text_parts) > MAX_EXTRACT_CHARS:
+        if sum(len(t) for t in text_parts) > max_chars:
             break
-    return "\n\n".join(text_parts)[:MAX_EXTRACT_CHARS]
+    return "\n\n".join(text_parts)[:max_chars]
 
 
-def _extract_docx(filepath):
+def _extract_docx(filepath, max_chars):
+    """Paragraphs and tables in document order; each table row becomes one line."""
     import docx
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
 
     document = docx.Document(filepath)
-    parts = [p.text for p in document.paragraphs if p.text and p.text.strip()]
-    for table in document.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                if cell.text and cell.text.strip():
-                    parts.append(cell.text.strip())
-    return "\n".join(parts)[:MAX_EXTRACT_CHARS]
+    parts = []
+    for block in document.element.body.iterchildren():
+        if block.tag.endswith("}p"):
+            text = Paragraph(block, document).text.strip()
+            if text:
+                parts.append(text)
+        elif block.tag.endswith("}tbl"):
+            for row in Table(block, document).rows:
+                cells = []
+                for cell in row.cells:
+                    text = " ".join(cell.text.split())
+                    if text and (not cells or cells[-1] != text):
+                        cells.append(text)
+                if cells:
+                    parts.append(" ".join(cells))
+    return "\n".join(parts)[:max_chars]
 
 
-def _extract_pptx(filepath):
+def _extract_pptx(filepath, max_chars):
     from pptx import Presentation
 
     prs = Presentation(filepath)
@@ -85,12 +97,12 @@ def _extract_pptx(filepath):
                             slide_lines.append(cell.text.strip())
         if slide_lines:
             parts.append(f"[Slide {i}] " + " | ".join(slide_lines))
-    return "\n".join(parts)[:MAX_EXTRACT_CHARS]
+    return "\n".join(parts)[:max_chars]
 
 
-def _extract_plain(filepath):
+def _extract_plain(filepath, max_chars):
     with open(filepath, "r", encoding="utf-8", errors="ignore") as fh:
-        return fh.read()[:MAX_EXTRACT_CHARS]
+        return fh.read(max_chars)
 
 
 def chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):

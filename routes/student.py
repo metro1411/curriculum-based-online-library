@@ -63,8 +63,17 @@ def _student_resource_or_404(resource_id):
     return resource
 
 
+def _open_to_student(resource):
+    """A resource this student can open now: verified and in a module they can see.
+
+    Activity history keeps resources whose module a new prospectus retired;
+    lists hide them so no link leads to a refusal.
+    """
+    return resource is not None and resource.is_verified and _student_can_access_module(resource.module)
+
+
 def _student_can_access_module(module):
-    """Keep exploration inside the learner's Electrical Engineering programme."""
+    """Keep exploration inside the learner's own programme and semester."""
     if not module:
         return False
     programme = module.semester.nta_level.programme
@@ -116,7 +125,7 @@ def dashboard():
     seen_ids = set()
     continue_learning = []
     for v in recent_views:
-        if v.resource_id in seen_ids or v.resource is None:
+        if v.resource_id in seen_ids or not _open_to_student(v.resource):
             continue
         seen_ids.add(v.resource_id)
         continue_learning.append(v)
@@ -132,7 +141,7 @@ def dashboard():
     seen_dl = set()
     recent_downloads = []
     for d in download_rows:
-        if d.resource_id in seen_dl or d.resource is None:
+        if d.resource_id in seen_dl or not _open_to_student(d.resource):
             continue
         seen_dl.add(d.resource_id)
         recent_downloads.append(d)
@@ -148,7 +157,7 @@ def dashboard():
     saved_resources = [
         item.resource for item in SavedItem.query.filter_by(student_id=current_user.id)
         .order_by(SavedItem.created_at.desc()).limit(4).all()
-        if item.resource is not None and item.resource.is_verified
+        if _open_to_student(item.resource)
     ]
     saved_count = SavedItem.query.filter_by(student_id=current_user.id).count()
     # Count in the database instead of loading every row: this page is the
@@ -319,9 +328,11 @@ def programmes(dept_slug):
         return coming_soon_response(
             "student", department.name, "department", url_for("student.departments")
         )
-    progs = Programme.query.filter_by(department_id=department.id).order_by(
+    progs = Programme.query.filter_by(department_id=department.id, is_active=True).order_by(
         Programme.display_order
     ).all()
+    if current_user.programme_id:
+        progs = [prog for prog in progs if prog.id == current_user.programme_id]
     breadcrumbs = build_breadcrumbs("student", department=department)
     return render_template(
         "student/programmes.html", department=department, programmes=progs,

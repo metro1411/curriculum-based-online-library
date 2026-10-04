@@ -61,7 +61,30 @@ def run():
     _seed_control_workspace(modules_by_name["Control Engineering"], lecturer)
     _seed_foundation_resources(modules_by_name, lecturer)
     db.session.commit()
+    if current_app.config["LOAD_BUNDLED_PROSPECTUS"]:
+        _load_bundled_prospectus()
     logger.info("Learning data check complete.")
+
+
+def _load_bundled_prospectus():
+    """Publish the prospectus shipped in bundled_prospectus on first start."""
+    from curriculum_service import load_bundled_prospectus
+
+    try:
+        version = load_bundled_prospectus()
+        if version is None:
+            return
+        db.session.commit()
+    except Exception:
+        # The app still starts; the HOD can upload the prospectus by hand.
+        db.session.rollback()
+        logger.exception("The bundled prospectus could not be loaded.")
+        return
+    if version.status == "published":
+        logger.info("Published the bundled prospectus: %s modules.", len(version.entries))
+    else:
+        logger.warning("The bundled prospectus was stopped: %s",
+                       "; ".join(issue["message"] for issue in version.validation_errors[:5]))
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +285,7 @@ def _seed_curriculum():
             active_level = level
 
     # --- Semesters under NTA Level 5 -----------------------------------
-    sem1 = _get_or_create_semester(active_level, 1, is_active=False)
+    _get_or_create_semester(active_level, 1, is_active=False)
     sem2 = _get_or_create_semester(active_level, 2, is_active=True)
 
     # --- Modules under Semester 2 ---------------------------------------

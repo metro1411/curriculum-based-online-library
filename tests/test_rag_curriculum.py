@@ -7,7 +7,9 @@ import pytest
 import ai_engine
 import curriculum_context
 from conftest import STUDENT, db
-from models import AIMessage, CurriculumVersion, Module, ProspectusChunk, ProspectusDocument, Resource, User
+from models import (
+    AIMessage, CurriculumVersion, Module, ProspectusChunk, ProspectusDocument, Resource, Semester, User,
+)
 
 
 def _student(app):
@@ -186,3 +188,118 @@ def test_api_ask_returns_context_label(app, student, seeded, fake_gemini):
     data = student.post("/api/v1/ai/ask", json={"question": "Explain the fetch decode execute cycle"}).get_json()
     assert data["ok"] and data["context_label"] in curriculum_context.CONTEXT_LABELS
     assert data["curriculum_context"]["programme"]
+
+
+def test_programme_question_gets_the_whole_live_outline(app, seeded):
+    with app.app_context():
+        student = _student(app)
+        scope, retrieved, ctx = _scope(f"Which modules are in the {student.programme.name} programme?", student)
+        outline = retrieved["programme_matches"][0]
+        assert outline["programme"].id == student.programme_id
+        assert "Control Engineering" in outline["text"] and "Microprocessor" in outline["text"]
+        prompt = ai_engine._build_current_turn("explain", student, None, None, retrieved, "Which modules?",
+                                               context=ctx, scope=scope)
+        assert "LIVE DIT PROSPECTUS PROGRAMME OUTLINES" in prompt
+
+
+def test_modules_outside_the_students_semester_are_found_by_name(app, seeded, hod_module_id):
+    with app.app_context():
+        module = db.session.get(Module, hod_module_id)
+        module.name = "DEMO Hydraulic Turbine Design"
+        module.semester_id = Semester.query.filter(Semester.id != seeded["semester_id"]).first().id
+        db.session.flush()
+        _, retrieved, ctx = _scope("Tell me about hydraulic turbine design", _student(app))
+        assert module not in ctx.modules
+        assert any(item["module"].id == module.id for item in retrieved["curriculum_matches"])
+        db.session.rollback()
+
+
+def test_prospectus_rules_reach_the_prompt(app, seeded):
+    with app.app_context():
+        document = ProspectusDocument(title="DEMO live prospectus", stored_filename="y", original_filename="y.txt",
+                                      extraction_status="success", extracted_text="DEMO rules")
+        db.session.add(document)
+        db.session.flush()
+        db.session.add(ProspectusChunk(document_id=document.id, chunk_index=0, content=(
+            "DEMO regulation: a candidate who fails a supplementary examination repeats the module.")))
+        db.session.add(CurriculumVersion(label="DEMO live rules", academic_year_label="2040/2041",
+                                         status="published", prospectus_document_id=document.id))
+        db.session.flush()
+        student = _student(app)
+        question = "What happens if I fail a supplementary examination?"
+        scope, retrieved, ctx = _scope(question, student)
+        assert retrieved["prospectus_matches"][0]["title"] == "DEMO live prospectus"
+        prompt = ai_engine._build_current_turn("explain", student, None, None, retrieved, question,
+                                               context=ctx, scope=scope)
+        assert "repeats the module" in prompt
+        db.session.rollback()
+
+
+def test_rule_questions_find_the_regulation_by_its_heading(app, seeded):
+    with app.app_context():
+        document = ProspectusDocument(title="DEMO rules prospectus", stored_filename="z", original_filename="z.txt",
+                                      extraction_status="success", extracted_text="DEMO")
+        db.session.add(document)
+        db.session.flush()
+        passages = [
+            "[Chapter Five: Examination Regulations › 9.0 Absence from Examination]\n"
+            "9.1 A DEMO candidate who absents oneself from an examination is discontinued.",
+            "[Chapter Five: Examination Regulations › 5.0 Examinations]\n"
+            "5.1 DEMO examinations include end of semester examinations and tests.",
+            "[Chapter Five: Examination Regulations › 11.0 Dates of Examinations]\n"
+            "11.1 DEMO end of semester examination dates are published each semester.",
+        ]
+        for index, content in enumerate(passages):
+            db.session.add(ProspectusChunk(document_id=document.id, chunk_index=index, content=content))
+        db.session.add(CurriculumVersion(label="DEMO rules live", academic_year_label="2041/2042",
+                                         status="published", prospectus_document_id=document.id))
+        db.session.flush()
+        tokens = ai_engine._tokenize("What happens if I miss an end of semester examination?")
+        matches = curriculum_context.retrieve_prospectus(tokens, None, ai_engine._tokenize)
+        assert "9.0 Absence from Examination" in matches[0]["text"]
+        labels = ai_engine.prospectus_source_labels(matches)
+        assert labels[0] == {"title": "Examination Regulations › 9.0 Absence from Examination"}
+        saved = ai_engine.sources_to_json([], [], labels)
+        assert ai_engine.prospectus_sources_from_json(saved)[0]["title"] == labels[0]["title"]
+        assert ai_engine.split_sources(saved) == ([], [])
+        db.session.rollback()
+
+
+def test_rule_questions_do_not_pull_programme_outlines(app, seeded):
+    with app.app_context():
+        student = _student(app)
+        _, retrieved, _ = _scope("How is the GPA computed?", student)
+        assert retrieved["programme_matches"] == []
+
+
+class _AttachmentModels(_FakeModels):
+    def generate_content(self, model, contents, config):
+        self.parts = contents[-1]["parts"]
+        return super().generate_content(model, contents, config)
+
+
+def test_student_can_attach_an_image_for_analysis(app, student, seeded, monkeypatch):
+    import base64
+    fake = SimpleNamespace(models=_AttachmentModels())
+    monkeypatch.setattr(ai_engine, "is_available", lambda: True)
+    monkeypatch.setattr(ai_engine, "_get_client", lambda: fake)
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    data = student.post("/ai/ask", json={"message": "", "attachment": {
+        "name": "circuit.png", "mime": "image/png", "data": base64.b64encode(png).decode()}}).get_json()
+    assert data["ok"], data
+    assert fake.models.parts[1]["inline_data"] == {"mime_type": "image/png", "data": png}
+    assert "ATTACHED FILE: circuit.png" in fake.models.parts[0]["text"]
+    with app.app_context():
+        saved = AIMessage.query.filter_by(conversation_id=data["conversation_id"], role="user").one()
+        assert saved.content == "Explain this attachment.\n\n[Attached: circuit.png]"
+
+
+@pytest.mark.parametrize("attachment,error", [
+    ({"name": "x.exe", "mime": "application/x-msdownload", "data": "TVo="}, "Attach a PNG"),
+    ({"name": "fake.png", "mime": "image/png", "data": "JVBERi0="}, "do not match"),
+    ({"name": "bad.pdf", "mime": "application/pdf", "data": "not base64!"}, "could not be read"),
+])
+def test_bad_attachments_are_refused(student, monkeypatch, attachment, error):
+    monkeypatch.setattr(ai_engine, "is_available", lambda: True)
+    response = student.post("/ai/ask", json={"message": "Read this", "attachment": attachment})
+    assert response.status_code == 400 and error in response.get_json()["error"]

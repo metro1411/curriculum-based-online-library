@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
-import re
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from sqlalchemy import case
 
+import academic_context
+import curriculum_service as svc
 from extensions import db
 from governance import record_audit
 from learning import department_insights
 from models import (
-    AcademicYear, AuditLog, LecturerAssignment, LecturerRequest, Module,
-    NtaLevel, Programme, Semester, User, utcnow,
+    AcademicYear, AuditLog, CurriculumVersion, IntegrationSyncLog, LecturerAssignment, LecturerRequest,
+    Module, NtaLevel, Programme, Semester, StudentModuleRegistration, User, utcnow,
 )
 from notifications import notify
 
 
 department_bp = Blueprint("department", __name__, url_prefix="/department")
-MODULE_TYPES = (("core", "Core Module"), ("general_studies", "General Studies Module"))
 
 
 @department_bp.before_request
@@ -267,251 +267,152 @@ def reactivate_lecturer(user_id):
     return redirect(url_for("department.lecturers"))
 
 
-@department_bp.route("/curriculum", methods=["GET", "POST"])
+@department_bp.route("/curriculum")
 def curriculum():
     department = _department()
+    modules = _department_modules().filter(Module.publication_status != "archived").all()
+    return render_template("department/curriculum.html", department=department, modules=modules,
+                           live=svc.live_version())
+
+
+# ---------------------------------------------------------------------------
+# Prospectus: the source of truth for every module
+# ---------------------------------------------------------------------------
+
+@department_bp.route("/prospectus", methods=["GET", "POST"])
+def prospectus():
     if request.method == "POST":
-        action = request.form.get("action")
-        if action == "academic_year":
-            label = (request.form.get("label") or "").strip()
-            match = re.fullmatch(r"(\d{4})/(\d{4})", label)
-            if not match or int(match.group(2)) != int(match.group(1)) + 1:
-                flash("Use an academic year in the format 2026/2027.", "error")
-            elif AcademicYear.query.filter_by(department_id=department.id, label=label).first():
-                flash("That academic year already exists.", "warning")
-            else:
-                make_current = bool(request.form.get("is_current"))
-                if make_current:
-                    AcademicYear.query.filter_by(department_id=department.id).update(
-                        {"is_current": False}, synchronize_session=False
-                    )
-                year = AcademicYear(
-                    department_id=department.id,
-                    label=label,
-                    is_current=make_current,
-                    status="active",
-                    created_by_id=current_user.id,
-                )
-                db.session.add(year)
-                db.session.flush()
-                record_audit(
-                    "academic_year.created", "AcademicYear", target_id=year.id,
-                    target_label=year.label, department_id=department.id,
-                )
-                db.session.commit()
-                flash(f"Academic year {label} is ready.", "success")
-            return redirect(url_for("department.curriculum"))
-
-        if action == "module":
-            return _create_module(department)
-
-    programmes = (
-        Programme.query.filter_by(department_id=department.id)
-        .order_by(Programme.display_order)
-        .all()
-    )
-    years = (
-        AcademicYear.query.filter_by(department_id=department.id)
-        .order_by(AcademicYear.label.desc())
-        .all()
-    )
-    modules = _department_modules().all()
-    return render_template(
-        "department/curriculum.html",
-        department=department,
-        programmes=programmes,
-        academic_years=years,
-        modules=modules,
-        module_types=MODULE_TYPES,
-    )
-
-
-def _create_module(department):
-    name = " ".join((request.form.get("name") or "").split())
-    code = (request.form.get("code") or "").strip().upper()
-    module_type = request.form.get("module_type") or ""
-    description = (request.form.get("description") or "").strip()
-    cohort_label = " ".join((request.form.get("cohort_label") or "").split())[:80] or None
-    academic_year_id = request.form.get("academic_year_id", type=int)
-    programme_id = request.form.get("programme_id", type=int)
-    level_id = request.form.get("nta_level_id", type=int)
-    semester_id = request.form.get("semester_id", type=int)
-
-    year = AcademicYear.query.filter_by(
-        id=academic_year_id, department_id=department.id, status="active"
-    ).first()
-    programme = Programme.query.filter_by(
-        id=programme_id, department_id=department.id
-    ).first()
-    level = db.session.get(NtaLevel, level_id) if level_id else None
-    semester = db.session.get(Semester, semester_id) if semester_id else None
-
-    error = None
-    if not 3 <= len(name) <= 200:
-        error = "Enter a clear module name."
-    elif not re.fullmatch(r"[A-Z0-9][A-Z0-9./-]{1,29}", code):
-        error = "Use a module code containing 2–30 letters, numbers, dots, slashes or hyphens."
-    elif module_type not in dict(MODULE_TYPES):
-        error = "Choose Core Module or General Studies Module."
-    elif not all((year, programme, level, semester)):
-        error = "Choose a valid academic year, programme, NTA level and semester."
-    elif level.programme_id != programme.id or semester.nta_level_id != level.id:
-        error = "The selected NTA level and semester do not belong to that programme."
-    else:
-        duplicate = (
-            Module.query.join(Semester).join(NtaLevel)
-            .filter(
-                Module.academic_year_id == year.id,
-                NtaLevel.programme_id == programme.id,
-                db.func.lower(Module.code) == code.lower(),
-            )
-            .first()
-        )
-        if duplicate:
-            error = f"Module code {code} already exists in this programme and academic year."
-
-    if error:
-        flash(error, "error")
-        return redirect(url_for("department.curriculum"))
-
-    next_order = (
-        db.session.query(db.func.max(Module.display_order))
-        .filter_by(semester_id=semester.id)
-        .scalar()
-        or 0
-    ) + 1
-    module = Module(
-        semester_id=semester.id,
-        academic_year_id=year.id,
-        name=name,
-        code=code,
-        module_type=module_type,
-        cohort_label=cohort_label,
-        description=description or None,
-        publication_status="published",
-        is_active=True,
-        display_order=next_order,
-        created_by_id=current_user.id,
-        provenance="hod_manual",
-    )
-    db.session.add(module)
-    db.session.flush()
-    record_audit(
-        "module.created", "Module", target_id=module.id,
-        target_label=f"{module.code} · {module.name}",
-        department_id=department.id,
-        details={
-            "academic_year": year.label,
-            "programme": programme.name,
-            "nta_level": level.level_number,
-            "semester": semester.semester_number,
-            "module_type": module.module_type,
-        },
-    )
-    db.session.commit()
-    flash(f"{code} · {name} has been published to {year.label}.", "success")
-    return redirect(url_for("department.curriculum"))
-
-
-@department_bp.route("/curriculum/years/<int:year_id>/current", methods=["POST"])
-def set_current_year(year_id):
-    department = _department()
-    year = AcademicYear.query.filter_by(id=year_id, department_id=department.id).first_or_404()
-    AcademicYear.query.filter_by(department_id=department.id).update(
-        {"is_current": False}, synchronize_session=False
-    )
-    year.is_current = True
-    year.status = "active"
-    record_audit(
-        "academic_year.set_current", "AcademicYear", target_id=year.id,
-        target_label=year.label, department_id=department.id,
-    )
-    db.session.commit()
-    flash(f"{year.label} is now the current curriculum edition.", "success")
-    return redirect(url_for("department.curriculum"))
-
-
-@department_bp.route("/curriculum/modules/<int:module_id>/archive", methods=["POST"])
-def archive_module(module_id):
-    module = _department_modules().filter(Module.id == module_id).first_or_404()
-    module.publication_status = "archived"
-    module.is_active = False
-    record_audit(
-        "module.archived", "Module", target_id=module.id,
-        target_label=f"{module.code or 'Code pending'} · {module.name}",
-        department_id=_department().id,
-    )
-    db.session.commit()
-    flash("Module archived. Historical records and resources were preserved.", "success")
-    return redirect(url_for("department.curriculum"))
-
-
-@department_bp.route("/curriculum/modules/<int:module_id>/edit", methods=["GET", "POST"])
-def edit_module(module_id):
-    module = _department_modules().filter(Module.id == module_id).first_or_404()
-    if request.method == "POST":
-        name = " ".join((request.form.get("name") or "").split())
-        code = (request.form.get("code") or "").strip().upper()
-        module_type = request.form.get("module_type") or ""
-        publication_status = request.form.get("publication_status") or ""
-        error = None
-        if not 3 <= len(name) <= 200:
-            error = "Enter a clear module name."
-        elif not re.fullmatch(r"[A-Z0-9][A-Z0-9./-]{1,29}", code):
-            error = "Use a module code containing 2–30 letters, numbers, dots, slashes or hyphens."
-        elif module_type not in dict(MODULE_TYPES):
-            error = "Choose Core Module or General Studies Module."
-        elif publication_status not in {"draft", "published", "archived"}:
-            error = "Choose a valid publication status."
-        else:
-            duplicate = (
-                Module.query.join(Semester).join(NtaLevel)
-                .filter(
-                    Module.id != module.id,
-                    Module.academic_year_id == module.academic_year_id,
-                    NtaLevel.programme_id == module.semester.nta_level.programme_id,
-                    db.func.lower(Module.code) == code.lower(),
-                )
-                .first()
-            )
-            if duplicate:
-                error = f"Module code {code} already exists in this programme and academic year."
-        if error:
-            flash(error, "error")
-        else:
-            before = {
-                "name": module.name,
-                "code": module.code,
-                "module_type": module.module_type,
-                "publication_status": module.publication_status,
-            }
-            module.name = name
-            module.code = code
-            module.module_type = module_type
-            module.cohort_label = " ".join(
-                (request.form.get("cohort_label") or "").split()
-            )[:80] or None
-            module.description = (request.form.get("description") or "").strip() or None
-            module.publication_status = publication_status
-            module.is_active = publication_status == "published"
-            record_audit(
-                "module.updated", "Module", target_id=module.id,
-                target_label=f"{module.code} · {module.name}",
-                department_id=_department().id,
-                details={"before": before, "after": {
-                    "name": module.name,
-                    "code": module.code,
-                    "module_type": module.module_type,
-                    "publication_status": module.publication_status,
-                }},
+        try:
+            version = svc.publish_upload(
+                request.files.get("file"), title=request.form.get("title"),
+                academic_year_label=request.form.get("academic_year_label"), user=current_user,
+                allow_large_change=bool(request.form.get("allow_large_change")),
             )
             db.session.commit()
-            flash("Module details updated and historical relationships preserved.", "success")
-            return redirect(url_for("department.curriculum"))
+        except svc.CurriculumWorkflowError as error:
+            db.session.rollback()
+            flash(str(error), "error")
+            return redirect(url_for("department.prospectus"))
+        if version.status == "published":
+            flash("Prospectus published. Every module now follows it.", "success")
+        else:
+            flash("Nothing was published. Fix the problems below and upload again.", "error")
+        return redirect(url_for("department.prospectus_result", version_id=version.id))
+    versions = CurriculumVersion.query.order_by(CurriculumVersion.created_at.desc()).limit(20).all()
+    return render_template("department/prospectus.html", department=_department(),
+                           live=svc.live_version(), versions=versions)
+
+
+@department_bp.route("/prospectus/<int:version_id>")
+def prospectus_result(version_id):
+    version = db.get_or_404(CurriculumVersion, version_id)
+    report = version.allocation_report
+    changes = [item for item in report.get("modules", []) if item["outcome"] != "new"]
+    return render_template("department/prospectus_result.html", department=_department(),
+                           version=version, report=report, changes=changes,
+                           outline=svc.version_outline(version), notes=svc.grouped_notes(version))
+
+
+@department_bp.route("/prospectus/undo", methods=["POST"])
+def prospectus_undo():
+    try:
+        version = svc.undo_last_publish(user=current_user)
+        db.session.commit()
+    except svc.CurriculumWorkflowError as error:
+        db.session.rollback()
+        flash(str(error), "error")
+        return redirect(url_for("department.prospectus"))
+    flash(f"Undone. “{version.label}” is no longer live.", "success")
+    return redirect(url_for("department.prospectus"))
+
+
+@department_bp.route("/prospectus/<int:version_id>/file")
+def prospectus_file(version_id):
+    import io
+    from flask import send_file
+    from storage_backend import StorageError, read_file_bytes
+
+    document = db.get_or_404(CurriculumVersion, version_id).prospectus_document
+    if document is None:
+        abort(404)
+    try:
+        content = read_file_bytes(document.stored_filename)
+    except FileNotFoundError:
+        abort(404)
+    except StorageError:
+        abort(503)
+    response = send_file(io.BytesIO(content), mimetype=document.mime_type or "application/octet-stream",
+                         as_attachment=True, download_name=document.original_filename)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.cache_control.private = True
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Student academic context (until SOMA is connected)
+# ---------------------------------------------------------------------------
+
+def _department_student(user_id):
+    return User.query.filter_by(id=user_id, role="student", department_id=_department().id).first_or_404()
+
+
+@department_bp.route("/students")
+def students():
+    query_text = (request.args.get("q") or "").strip()
+    query = User.query.filter_by(role="student", department_id=_department().id)
+    if query_text:
+        like = f"%{query_text}%"
+        query = query.filter(db.or_(User.full_name.ilike(like), User.registration_number.ilike(like),
+                                    User.email.ilike(like)))
+    return render_template("department/students.html", department=_department(),
+                           students=query.order_by(User.full_name).limit(100).all(), query=query_text)
+
+
+@department_bp.route("/students/<int:user_id>", methods=["GET", "POST"])
+def student_context(user_id):
+    student = _department_student(user_id)
+    if request.method == "POST":
+        try:
+            academic_context.set_internal_context(
+                student,
+                programme_id=request.form.get("programme_id", type=int),
+                level_id=request.form.get("nta_level_id", type=int),
+                semester_id=request.form.get("semester_id", type=int),
+                academic_year_id=request.form.get("academic_year_id", type=int),
+                module_ids=[int(v) for v in request.form.getlist("module_ids") if v.isdigit()],
+                actor=current_user,
+            )
+            db.session.commit()
+            flash(f"Placement for {student.full_name} saved.", "success")
+        except academic_context.AcademicContextError as error:
+            db.session.rollback()
+            flash(str(error), "error")
+        return redirect(url_for("department.student_context", user_id=user_id))
+
+    registered_ids = {row.module_id for row in StudentModuleRegistration.query.filter_by(student_id=student.id)}
+    modules = []
+    if student.programme_id:
+        modules = (Module.query.join(Semester).join(NtaLevel)
+                   .filter(NtaLevel.programme_id == student.programme_id, Module.publication_status == "published")
+                   .order_by(NtaLevel.level_number, Semester.semester_number, Module.display_order).all())
     return render_template(
-        "department/edit_module.html", department=_department(),
-        module=module, module_types=MODULE_TYPES,
+        "department/student_context.html", department=_department(), student=student,
+        programmes=Programme.query.filter_by(is_active=True)
+        .order_by(Programme.department_id, Programme.display_order).all(),
+        academic_years=AcademicYear.query.order_by(AcademicYear.label.desc()).all(),
+        modules=modules, registered_ids=registered_ids, context=academic_context.describe_context(student),
+        sync_logs=IntegrationSyncLog.query.filter_by(student_id=student.id)
+        .order_by(IntegrationSyncLog.created_at.desc()).limit(10).all(),
     )
+
+
+@department_bp.route("/students/<int:user_id>/soma-sync", methods=["POST"])
+def student_soma_sync(user_id):
+    student = _department_student(user_id)
+    result = academic_context.sync_from_soma(student, triggered_by=current_user)
+    db.session.commit()
+    flash(result["message"], "success" if result["ok"] else "warning")
+    return redirect(url_for("department.student_context", user_id=user_id))
 
 
 @department_bp.route("/module-claims")

@@ -136,9 +136,6 @@
 .department-page .dashboard-grid + .dashboard-grid { margin-top: 0; }
 
 /* Curriculum --------------------------------------------------------------------- */
-.curriculum-builder form { display: grid; gap: 4px; }
-.curriculum-builder form > .btn { justify-self: start; margin-top: 8px; }
-.year-list { display: grid; }
 
 /* People and claims ------------------------------------------------------------- */
 .people-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
@@ -189,40 +186,8 @@
 }
 
 /* --------------------------------------------------------------------------
-   Curriculum administration, mapping and recommendations
+   Prospectus, mapping and recommendations
    -------------------------------------------------------------------------- */
-.workflow-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.workflow-steps li {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px 6px 6px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text-2);
-  font-size: 0.85rem;
-}
-.workflow-steps li span {
-  display: inline-grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--surface-3);
-  font-weight: 600;
-}
-.workflow-steps li.is-done span { background: var(--accent-soft-2); color: var(--accent-strong); }
-.workflow-steps li.is-current { border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
-.workflow-steps li.is-current span { background: var(--accent); color: var(--on-accent); }
-
 .notice {
   padding: 11px 13px;
   border: 1px solid var(--border);
@@ -233,11 +198,6 @@
 }
 .notice--warning { border-color: var(--warning-border); background: var(--warning-soft); }
 
-.validation-report h3 { font-size: 1rem; }
-.validation-report__errors li { color: var(--danger); margin-bottom: 4px; }
-.data-table tr.has-issues td { background: var(--danger-soft); }
-.data-table td small.text-danger { display: block; }
-.data-table details.inline-editor form { display: grid; gap: 6px; min-width: 260px; margin-top: 8px; }
 
 .curriculum-mapping {
   display: grid;

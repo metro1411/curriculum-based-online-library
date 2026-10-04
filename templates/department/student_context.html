@@ -2,12 +2,12 @@
 {% block title %}{{ student.full_name }} · academic context | {{ app_name }}{% endblock %}
 {% block content %}
 <div class="container fade-in">
-  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">Academic context</span><h1>{{ student.full_name }}</h1><p>{{ student.registration_number or student.email }} · Source: {{ context.source_label }}{% if context.last_synced_at %} · last SOMA sync {{ context.last_synced_at.strftime('%d %b %Y %H:%M') }}{% endif %}</p></div>
-    <form method="POST" action="{{ url_for('admin.student_soma_sync', user_id=student.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-secondary">Sync from SOMA</button></form></div>
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow"><a href="{{ url_for('department.students') }}">Students</a></span><h1>{{ student.full_name }}</h1><p>{{ student.registration_number or student.email }} · Source: {{ context.source_label }}{% if context.last_synced_at %} · last SOMA sync {{ context.last_synced_at.strftime('%d %b %Y %H:%M') }}{% endif %}</p></div>
+    <form method="POST" action="{{ url_for('department.student_soma_sync', user_id=student.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-secondary">Sync from SOMA</button></form></div>
 
   <div class="curriculum-admin-grid">
     <section class="card card-pad">
-      <div class="section-header"><div><span class="section-kicker">Internal mechanism</span><h2>Set placement</h2></div></div>
+      <div class="section-header"><div><h2>Placement</h2></div></div>
       <form method="POST" data-curriculum-form><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-grid form-grid--two">
           <div class="form-group"><label class="form-label" for="programme_id">Programme</label><select class="form-select" id="programme_id" name="programme_id" data-programme required><option value="">Select programme</option>{% for programme in programmes %}<option value="{{ programme.id }}" {{ 'selected' if programme.id == student.programme_id }}>{{ programme.department.name }} · {{ programme.name }}</option>{% endfor %}</select></div>
@@ -16,15 +16,15 @@
           <div class="form-group"><label class="form-label" for="academic_year_id">Academic year</label><select class="form-select" id="academic_year_id" name="academic_year_id" required><option value="">Select year</option>{% for year in academic_years %}<option value="{{ year.id }}" {{ 'selected' if year.id == student.academic_year_id }}>{{ year.department.name }} · {{ year.label }}{{ ' · current' if year.is_current }}</option>{% endfor %}</select></div>
         </div>
         <fieldset class="form-group"><legend class="form-label">Registered modules</legend>
-          {% for module in modules %}<label class="form-check"><input type="checkbox" name="module_ids" value="{{ module.id }}" {{ 'checked' if module.id in registered_ids }}> {{ module.code or 'Code pending' }} · {{ module.name }} <small>({{ module.semester.nta_level.label }} · {{ module.semester.label }}{{ ' · ' ~ module.academic_year.label if module.academic_year }})</small></label>{% else %}<p class="form-hint">Save a programme first to choose registered modules.</p>{% endfor %}
+          {% for module in modules %}<label class="form-check"><input type="checkbox" name="module_ids" value="{{ module.id }}" {{ 'checked' if module.id in registered_ids }}> {{ module.code or 'Code pending' }} · {{ module.name }} <small>({{ module.semester.nta_level.label }} · {{ module.semester.label }}{{ ' · ' ~ module.academic_year.label if module.academic_year }})</small></label>{% else %}<p class="form-hint">Save a programme first.</p>{% endfor %}
         </fieldset>
-        <button class="btn btn-primary">Save academic context</button>
+        <button class="btn btn-primary">Save placement</button>
       </form>
     </section>
     <section class="card card-pad">
-      <div class="section-header"><div><span class="section-kicker">Current view</span><h2>What the student sees</h2></div></div>
+      <div class="section-header"><div><h2>What the student sees</h2></div></div>
       <p><strong>{{ context.programme.name if context.programme else 'Programme not set' }}</strong><br>{{ context.level.display_label if context.level else 'Level not set' }} · {{ context.semester.label if context.semester else 'Semester not set' }} · {{ context.academic_year.label if context.academic_year else 'Year not set' }}</p>
-      <p class="form-hint">{{ 'Registered modules' if context.modules_from_registration else 'No registrations recorded; semester modules are shown instead.' }}</p>
+      <p class="form-hint">{{ 'Registered modules' if context.modules_from_registration else 'No registrations; semester modules are shown.' }}</p>
       <ul>{% for module in context.modules %}<li>{{ module.code or 'Code pending' }} · {{ module.name }}</li>{% else %}<li>No modules.</li>{% endfor %}</ul>
       <h3 class="mt-4">SOMA sync history</h3>
       {% for log in sync_logs %}<div class="insight-list-item"><span class="rank">{{ log.status[:1]|upper }}</span><div><strong>{{ log.status|replace('_', ' ')|title }}</strong><small>{{ log.created_at.strftime('%d %b %Y · %H:%M') }} · {{ log.message }}</small></div></div>{% else %}<p>No sync attempts.</p>{% endfor %}

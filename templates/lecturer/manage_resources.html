@@ -72,7 +72,7 @@
           <td>{{ r.created_at.strftime('%d %b %Y') }}</td>
           <td>
             <div class="row-actions">
-              <a class="btn btn-ghost btn-sm btn-icon" href="{{ url_for('student.resource_view', resource_id=r.id) }}" title="View" aria-label="View">{{ icons.icon('eye', size=15) }}</a>
+              <a class="btn btn-ghost btn-sm btn-icon" href="{{ url_for('lecturer.module_content', module_id=r.module_id) }}" title="Open module" aria-label="Open module">{{ icons.icon('eye', size=15) }}</a>
               {% if r.uploaded_by_id == current_user.id %}
               <a class="btn btn-ghost btn-sm btn-icon" href="{{ url_for('lecturer.edit_resource', resource_id=r.id) }}" title="Edit" aria-label="Edit">{{ icons.icon('edit', size=15) }}</a>
               <form method="POST" action="{{ url_for('lecturer.delete_resource', resource_id=r.id) }}"
