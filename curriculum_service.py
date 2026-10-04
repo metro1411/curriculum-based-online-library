@@ -1,22 +1,18 @@
-"""Prospectus ingestion and curriculum-version workflow.
+"""Prospectus upload and automatic publishing.
 
-Workflow (enforced here, exposed by routes/admin.py):
+A Head of Department uploads the prospectus and the system does the rest:
 
-    UPLOAD -> EXTRACT -> REVIEW -> VALIDATE -> APPROVE -> PUBLISH (-> ARCHIVE)
+    UPLOAD -> READ -> CHECK -> SWAP (one transaction) -> LIVE
 
-* The uploaded prospectus is stored unchanged for audit (ProspectusDocument).
-* Extraction only ever produces *staged* CurriculumEntry rows marked
-  ``needs_review``. Nothing extracted is trusted or shown to students.
-* Validation must pass, and every staged entry must be reviewed, before a
-  version can be approved; approval is required before publishing.
-* Publishing materialises the staged rows into the live
-  Department -> Programme -> NtaLevel -> Semester -> Module tree under the
-  version's academic year. Published and archived versions are immutable.
-* Archiving retires a version's modules (``publication_status='archived'``)
-  without deleting modules, resources, analytics or history.
+* The uploaded file is stored unchanged for audit (ProspectusDocument).
+* Modules read from it are staged on a CurriculumVersion so a stopped read
+  can be inspected. Any check failure publishes nothing.
+* A clean read replaces every live module in every department. Old modules
+  are archived, never deleted. Resources, lecturer assignments, topics and
+  student registrations follow the module code to the new module.
+* Every live change is journalled so the latest publish can be undone.
 
-Nothing in this module invents curriculum data: every value comes from the
-administrator, an uploaded file, or a CSV the administrator supplied.
+Nothing here invents curriculum data: every value comes from the uploaded file.
 """
 
 from __future__ import annotations
@@ -35,8 +31,8 @@ from file_processing import chunk_text, extract_text
 from governance import record_audit
 from models import (
     AcademicYear, CurriculumEntry, CurriculumVersion, Department, DraftProgramme,
-    Module, ModulePrerequisite, NtaLevel, Programme, ProspectusChunk,
-    ProspectusDocument, Semester, utcnow,
+    LecturerAssignment, Module, ModulePrerequisite, NtaLevel, Programme, ProspectusChunk,
+    ProspectusDocument, Resource, Semester, StudentModuleRegistration, Topic, User, utcnow,
 )
 from utils import build_stored_filename, looks_like_claimed_type, slugify
 
@@ -73,8 +69,8 @@ def store_prospectus(file_storage, *, title, academic_year_label, user):
     """Store the original prospectus and extract its text.
 
     Raises CurriculumWorkflowError for invalid files. Extraction failures do
-    not raise: the document is kept with ``extraction_status='failed'`` so the
-    administrator can still enter the curriculum manually.
+    not raise: the document is kept with ``extraction_status='failed'`` and
+    the publish stops with that reason.
     """
     from storage_backend import StorageError, delete_resource_file, stage_uploaded_file
 
@@ -90,7 +86,7 @@ def store_prospectus(file_storage, *, title, academic_year_label, user):
     if len(title) < 3:
         raise CurriculumWorkflowError("Give the prospectus a clear title.")
     academic_year_label = (academic_year_label or "").strip()
-    if academic_year_label and not _valid_academic_year(academic_year_label):
+    if not _valid_academic_year(academic_year_label):
         raise CurriculumWorkflowError("Use an academic year in the format 2026/2027.")
 
     stored_filename = build_stored_filename(filename)
@@ -107,7 +103,7 @@ def store_prospectus(file_storage, *, title, academic_year_label, user):
             raise CurriculumWorkflowError("The uploaded file is empty.")
         document = ProspectusDocument(
             title=title,
-            academic_year_label=academic_year_label or None,
+            academic_year_label=academic_year_label,
             stored_filename=stored_filename,
             original_filename=os.path.basename(filename)[:300],
             mime_type=PROSPECTUS_MIME_TYPES[ext],
@@ -123,8 +119,7 @@ def store_prospectus(file_storage, *, title, academic_year_label, user):
         else:
             document.extraction_status = "failed"
             document.extraction_message = (
-                "No readable text was found. The file may be scanned or protected; "
-                "enter or import the curriculum manually."
+                "No readable text was found. The file may be scanned or protected; upload a text PDF or the CSV template."
             )
         db.session.add(document)
         db.session.flush()
@@ -252,7 +247,6 @@ def parse_curriculum_csv(text):
 
 def stage_rows(version, rows, *, origin, user):
     """Create staged programmes and entries from parsed rows."""
-    _require_editable(version)
     programmes = {(p.department_name.lower(), p.name.lower()): p for p in version.programmes}
     created = 0
     for row in rows:
@@ -299,40 +293,19 @@ def stage_rows(version, rows, *, origin, user):
             updated_by_id=getattr(user, "id", None),
         ))
         created += 1
-    mark_changed(version)
     return created
 
 
-def extract_into_version(version, document, *, user):
-    """Run extraction for a stored prospectus and stage the results."""
-    _require_editable(version)
-    if document.extraction_status != "success" or not document.extracted_text:
-        raise CurriculumWorkflowError(
-            "No text could be extracted from this prospectus. Add the curriculum manually or import the CSV template."
-        )
+def read_rows(document):
+    """Rows and line problems read from a stored prospectus."""
     if document.original_filename.lower().endswith(".csv"):
         rows, problems = parse_curriculum_csv(document.extracted_text)
-        origin = "csv"
-    else:
-        rows, problems = extract_candidates(document.extracted_text), []
-        origin = "extracted"
-    if not rows:
-        raise CurriculumWorkflowError(
-            "No module lines were recognised. The layout may not be machine-readable; add entries manually."
-        )
-    count = stage_rows(version, rows, origin=origin, user=user)
-    version.prospectus_document_id = document.id
-    version.source = "prospectus_import"
-    record_audit(
-        "curriculum.extracted", "CurriculumVersion", target_id=version.id, target_label=version.label,
-        actor=user, details={"document_id": document.id, "entries": count, "origin": origin,
-                             "problems": problems[:20]},
-    )
-    return count, problems
+        return rows, problems, "csv"
+    return extract_candidates(document.extracted_text), [], "extracted"
 
 
 # ---------------------------------------------------------------------------
-# Validation
+# Checks
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -344,65 +317,46 @@ class ValidationReport:
     def ok(self):
         return not self.errors
 
-    def error(self, message, entry=None, programme=None):
-        self.errors.append(_issue(message, entry, programme))
+    def error(self, message, entry=None):
+        self.errors.append(_issue(message, entry))
 
-    def warn(self, message, entry=None, programme=None):
-        self.warnings.append(_issue(message, entry, programme))
-
-    def for_entry(self, entry_id):
-        return [item["message"] for item in self.errors + self.warnings if item.get("entry_id") == entry_id]
+    def warn(self, message, entry=None):
+        self.warnings.append(_issue(message, entry))
 
     def to_json(self):
         return json.dumps({"errors": self.errors, "warnings": self.warnings})
 
-    @classmethod
-    def from_json(cls, raw):
-        try:
-            data = json.loads(raw or "{}")
-        except ValueError:
-            data = {}
-        return cls(errors=data.get("errors", []), warnings=data.get("warnings", []))
 
-
-def _issue(message, entry, programme):
+def _issue(message, entry):
     item = {"message": message}
-    if entry is not None:
-        item["entry_id"] = entry.id
-    if programme is not None:
-        item["programme_id"] = programme.id
+    if entry is not None and entry.source_reference:
+        item["source"] = entry.source_reference
     return item
 
 
 def validate_version(version):
-    """Check a version for structural problems. Never modifies data."""
+    """Check staged modules for problems. Never modifies data."""
     report = ValidationReport()
     if not _valid_academic_year(version.academic_year_label):
         report.error("The academic year must use the format 2026/2027.")
 
     programme_ids = {p.id for p in version.programmes}
     for programme in version.programmes:
-        if not programme.department_name.strip() or not programme.name.strip():
-            report.error("Programme is missing its department or name.", programme=programme)
         if not programme.levels:
-            report.error(f"{programme.name}: define at least one NTA level.", programme=programme)
+            report.error(f"{programme.name}: no NTA level was found.")
         elif any(level < 1 or level > MAX_LEVEL for level in programme.levels):
-            report.error(f"{programme.name}: NTA levels must be between 1 and {MAX_LEVEL}.", programme=programme)
-        if not 1 <= (programme.semesters_per_level or 0) <= MAX_SEMESTERS:
-            report.error(f"{programme.name}: semesters per level must be between 1 and {MAX_SEMESTERS}.",
-                         programme=programme)
+            report.error(f"{programme.name}: NTA levels must be between 1 and {MAX_LEVEL}.")
 
-    active = [entry for entry in version.entries if entry.review_status != "rejected"]
-    if not active:
-        report.error("The version has no curriculum entries to publish.")
+    entries = list(version.entries)
+    if not entries:
+        report.error("No modules were found in the file.")
 
-    seen_codes, seen_names = {}, {}
-    codes_in_version = {}
-    for entry in active:
-        label = entry.module_code or entry.module_name or f"Entry {entry.id}"
+    seen_codes, seen_names, codes_in_version = set(), set(), set()
+    for entry in entries:
+        label = entry.module_code or entry.module_name or "A module line"
         programme = entry.programme
         if programme is None or entry.programme_id not in programme_ids:
-            report.error(f"{label}: assign the module to a programme defined in this version.", entry)
+            report.error(f"{label}: department or programme is missing.", entry)
         if not entry.module_name or not 3 <= len(entry.module_name.strip()) <= 200:
             report.error(f"{label}: module name is required.", entry)
         if not entry.module_code:
@@ -416,34 +370,27 @@ def validate_version(version):
             report.error(f"{label}: NTA level {entry.nta_level} is not defined for {programme.name}.", entry)
         if entry.semester_number is None:
             report.error(f"{label}: semester is required.", entry)
-        elif programme is not None and not 1 <= entry.semester_number <= programme.semesters_per_level:
-            report.error(
-                f"{label}: semester {entry.semester_number} is invalid; {programme.name} has "
-                f"{programme.semesters_per_level} semester(s) per level.", entry)
-        if entry.module_type not in MODULE_TYPES:
-            report.error(f"{label}: choose Core or General Studies.", entry)
+        elif not 1 <= entry.semester_number <= MAX_SEMESTERS:
+            report.error(f"{label}: semester {entry.semester_number} is invalid.", entry)
         if entry.credits is not None and not (Decimal("0") <= entry.credits <= Decimal("100")):
             report.error(f"{label}: credits must be between 0 and 100.", entry)
         if entry.credits is None:
-            report.warn(f"{label}: credits not recorded (leave blank only if the prospectus omits them).", entry)
-        if entry.review_status != "reviewed":
-            report.error(f"{label}: mark the entry as reviewed after checking it against the prospectus.", entry)
+            report.warn(f"{label}: credits not recorded.", entry)
 
         if entry.programme_id and entry.module_code:
-            code_key = (entry.programme_id, entry.module_code.lower())
-            if code_key in seen_codes:
+            key = (entry.programme_id, entry.module_code.upper())
+            if key in seen_codes:
                 report.error(f"{label}: duplicate module code in {programme.name}.", entry)
-            seen_codes[code_key] = entry
-            codes_in_version.setdefault(entry.module_code.upper(), []).append(entry)
+            seen_codes.add(key)
+            codes_in_version.add(entry.module_code.upper())
         if entry.programme_id and entry.module_name:
-            name_key = (entry.programme_id, entry.nta_level, entry.semester_number, entry.module_name.strip().lower())
-            if name_key in seen_names:
+            key = (entry.programme_id, entry.nta_level, entry.semester_number, entry.module_name.strip().lower())
+            if key in seen_names:
                 report.error(f"{label}: duplicate module name in the same programme, level and semester.", entry)
-            seen_names[name_key] = entry
+            seen_names.add(key)
 
-    # Prerequisites must resolve and must not loop.
     graph = {}
-    for entry in active:
+    for entry in entries:
         if not entry.module_code:
             continue
         node = entry.module_code.upper()
@@ -451,25 +398,13 @@ def validate_version(version):
         for code in entry.prerequisite_list:
             if code == node:
                 report.error(f"{entry.module_code}: a module cannot be its own prerequisite.", entry)
-                continue
-            if code in codes_in_version:
+            elif code in codes_in_version:
                 graph[node].add(code)
-            elif not _live_module_with_code(code):
-                report.error(f"{entry.module_code}: prerequisite {code} is not in this version or the live curriculum.",
-                             entry)
+            else:
+                report.error(f"{entry.module_code}: prerequisite {code} is not in this prospectus.", entry)
     cycle = _find_cycle(graph)
     if cycle:
         report.error("Prerequisites form a loop: " + " → ".join(cycle) + ".")
-
-    # Never silently collide with modules already live for the same year.
-    for entry in active:
-        if entry.programme is None or not entry.module_code:
-            continue
-        conflict = _live_conflict(version, entry)
-        if conflict is not None:
-            report.error(
-                f"{entry.module_code}: already published in {entry.programme.name} for "
-                f"{version.academic_year_label}. Archive it or correct this entry.", entry)
     return report
 
 
@@ -497,194 +432,323 @@ def _find_cycle(graph):
     return None
 
 
-def _live_module_with_code(code):
-    return (Module.query.filter(db.func.upper(Module.code) == code.upper(),
-                                Module.publication_status == "published").first())
+# ---------------------------------------------------------------------------
+# Publish and undo
+# ---------------------------------------------------------------------------
 
-
-def _live_conflict(version, entry):
-    return (
-        Module.query.join(Semester).join(NtaLevel).join(Programme).join(Department)
-        .join(AcademicYear, Module.academic_year_id == AcademicYear.id)
-        .filter(
-            db.func.lower(Department.name) == entry.programme.department_name.lower(),
-            db.func.lower(Programme.name) == entry.programme.name.lower(),
-            AcademicYear.label == version.academic_year_label,
-            db.func.upper(Module.code) == entry.module_code.upper(),
-            Module.publication_status != "archived",
-            db.or_(Module.curriculum_version_id.is_(None), Module.curriculum_version_id != version.id),
-        )
-        .first()
+LARGE_CHANGE_SHARE = 0.5
+_MODELS = {
+    model.__tablename__: model for model in (
+        AcademicYear, CurriculumVersion, Department, LecturerAssignment, Module, NtaLevel,
+        Programme, Resource, Semester, StudentModuleRegistration, Topic, User,
     )
+}
+_WATERMARKED = (Resource, Topic, LecturerAssignment)
 
 
-# ---------------------------------------------------------------------------
-# State transitions
-# ---------------------------------------------------------------------------
+class _Journal:
+    """Records every live change so the publish can be reversed exactly."""
 
-def create_version(*, label, academic_year_label, user, notes=None, is_demo=False):
-    label = " ".join((label or "").split())[:150]
-    academic_year_label = (academic_year_label or "").strip()
-    if len(label) < 3:
-        raise CurriculumWorkflowError("Give the curriculum version a clear name.")
-    if is_demo and "DEMO" not in label.upper():
-        label = f"DEMO · {label}"[:150]
-    if not _valid_academic_year(academic_year_label):
-        raise CurriculumWorkflowError("Use an academic year in the format 2026/2027.")
-    if CurriculumVersion.query.filter(db.func.lower(CurriculumVersion.label) == label.lower()).first():
-        raise CurriculumWorkflowError("A curriculum version with that name already exists.")
+    def __init__(self):
+        self.changes, self.created = [], []
+
+    def set(self, row, attr, value):
+        old = getattr(row, attr)
+        if old != value:
+            self.changes.append([row.__tablename__, row.id, attr, old])
+            setattr(row, attr, value)
+
+    def add(self, row):
+        db.session.add(row)
+        db.session.flush()
+        self.created.append([row.__tablename__, row.id])
+        return row
+
+
+def live_version():
+    return (CurriculumVersion.query.filter_by(status="published")
+            .order_by(CurriculumVersion.published_at.desc(), CurriculumVersion.id.desc()).first())
+
+
+def publish_upload(file_storage, *, title, academic_year_label, user, allow_large_change=False):
+    """Store, read, check and publish a prospectus. Returns its version.
+
+    ``version.status`` is ``published`` on success or ``failed`` when a check
+    stopped it; a failed version leaves the live curriculum untouched.
+    """
+    document = store_prospectus(file_storage, title=title, academic_year_label=academic_year_label, user=user)
     version = CurriculumVersion(
-        label=label, academic_year_label=academic_year_label, notes=(notes or "").strip() or None,
-        is_demo=bool(is_demo), created_by_id=getattr(user, "id", None), status="draft",
+        label=f"{document.title} · {document.academic_year_label} · #{document.id}"[:150],
+        academic_year_label=document.academic_year_label, status="failed", source="prospectus_import",
+        prospectus_document_id=document.id, created_by_id=getattr(user, "id", None),
     )
     db.session.add(version)
     db.session.flush()
-    record_audit("curriculum.version_created", "CurriculumVersion", target_id=version.id,
-                 target_label=version.label, actor=user,
-                 details={"academic_year": academic_year_label, "demo": bool(is_demo)})
+
+    report = ValidationReport()
+    current = live_version()
+    if current and current.prospectus_document and current.prospectus_document.sha256 == document.sha256:
+        report.error("This prospectus is already live.")
+    elif document.extraction_status != "success":
+        report.error(document.extraction_message or "No readable text was found.")
+    else:
+        rows, problems, origin = read_rows(document)
+        if rows:
+            stage_rows(version, rows, origin=origin, user=user)
+            db.session.flush()
+            db.session.refresh(version)
+            report = validate_version(version)
+        else:
+            report.error("No modules were found in the file. Upload a text PDF or the CSV template.")
+        for problem in problems:
+            report.error(problem)
+
+    if report.ok and not allow_large_change:
+        old = _live_modules()
+        new_codes = {e.module_code.upper() for e in version.entries}
+        retired = sum(1 for m in old if _normalise_code(m.code) not in new_codes)
+        if old and retired / len(old) > LARGE_CHANGE_SHARE:
+            report.error(f"This prospectus would retire {retired} of {len(old)} live modules. "
+                         "Tick “Confirm a large change” if that is expected.")
+
+    version.last_validation_json = report.to_json()
+    version.validated_at = utcnow()
+    if not report.ok:
+        record_audit("prospectus.stopped", "CurriculumVersion", target_id=version.id,
+                     target_label=version.label, actor=user, details={"errors": len(report.errors)})
+        return version
+    _swap(version, user)
     return version
 
 
-def mark_changed(version):
-    """Any edit invalidates a previous validation or approval."""
-    if version.status in {"validated", "approved"}:
-        version.status = "draft"
-        version.approved_by_id = None
-        version.approved_at = None
+def _live_modules():
+    return Module.query.filter(Module.publication_status != "archived").all()
 
 
-def run_validation(version, *, user):
-    _require_editable(version)
-    report = validate_version(version)
-    version.last_validation_json = report.to_json()
-    version.validated_at = utcnow()
-    version.status = "validated" if report.ok else "draft"
-    record_audit("curriculum.validated", "CurriculumVersion", target_id=version.id,
-                 target_label=version.label, actor=user,
-                 details={"ok": report.ok, "errors": len(report.errors), "warnings": len(report.warnings)})
-    return report
+def _swap(version, user):
+    """Replace every live module with the version's modules, in one transaction."""
+    journal = _Journal()
+    watermarks = {m.__tablename__: db.session.query(db.func.max(m.id)).scalar() or 0 for m in _WATERMARKED}
+    old_modules = _live_modules()
+    old_paths = {m.id: (m.semester.nta_level.programme, m.semester.nta_level.programme.department)
+                 for m in old_modules}
+    for module in old_modules:
+        journal.set(module, "publication_status", "archived")
+        journal.set(module, "is_active", False)
+    for previous in CurriculumVersion.query.filter_by(status="published").all():
+        journal.set(previous, "status", "archived")
 
-
-def approve_version(version, *, user):
-    if version.status != "validated":
-        raise CurriculumWorkflowError("Validate the version successfully before approving it.")
-    report = validate_version(version)
-    if not report.ok:
-        version.status = "draft"
-        version.last_validation_json = report.to_json()
-        raise CurriculumWorkflowError("The version changed and no longer validates. Review the issues and try again.")
-    version.status = "approved"
-    version.approved_by_id = user.id
-    version.approved_at = utcnow()
-    record_audit("curriculum.approved", "CurriculumVersion", target_id=version.id,
-                 target_label=version.label, actor=user)
-
-
-def publish_version(version, *, user, make_current=False):
-    """Materialise an approved version into the live curriculum tree."""
-    if version.status != "approved":
-        raise CurriculumWorkflowError("Only an approved version can be published.")
-    report = validate_version(version)
-    if not report.ok:
-        version.status = "draft"
-        version.last_validation_json = report.to_json()
-        raise CurriculumWorkflowError("Publishing stopped: the version no longer validates.")
-
-    active = [entry for entry in version.entries if entry.review_status != "rejected"]
-    touched_departments = {}
-    created_by_code = {}
-    for entry in active:
+    touched = {name: set() for name in ("departments", "programmes", "nta_levels", "semesters")}
+    years, created_by_code = {}, {}
+    for entry in version.entries:
         draft = entry.programme
-        department = _get_or_create_department(draft.department_name)
-        touched_departments[department.id] = department
-        programme = _get_or_create_programme(department, draft)
-        level = _get_or_create_level(programme, entry.nta_level, draft.year_label_map.get(entry.nta_level))
-        semester = _get_or_create_semester(level, entry.semester_number)
-        year = _get_or_create_year(department, version.academic_year_label, user)
-        next_order = (db.session.query(db.func.max(Module.display_order))
-                      .filter_by(semester_id=semester.id).scalar() or 0) + 1
-        module = Module(
-            semester_id=semester.id, academic_year_id=year.id, name=entry.module_name.strip(),
+        department = _department(draft.department_name, journal)
+        programme = _programme(department, draft, journal)
+        level = _level(programme, entry.nta_level, draft.year_label_map.get(entry.nta_level), journal)
+        semester = _semester(level, entry.semester_number, journal)
+        for row in (department, programme, level, semester):
+            touched[row.__tablename__].add(row.id)
+        if department.id not in years:
+            years[department.id] = _year(department, version.academic_year_label, user, journal)
+        order = (db.session.query(db.func.max(Module.display_order))
+                 .filter_by(semester_id=semester.id).scalar() or 0) + 1
+        module = journal.add(Module(
+            semester_id=semester.id, academic_year_id=years[department.id].id, name=entry.module_name.strip(),
             code=entry.module_code, module_type=entry.module_type, credits=entry.credits,
             description=entry.description, publication_status="published", is_active=True,
-            display_order=next_order, created_by_id=user.id, provenance="prospectus",
+            display_order=order, created_by_id=getattr(user, "id", None), provenance="prospectus",
             curriculum_version_id=version.id,
-        )
-        db.session.add(module)
-        db.session.flush()
+        ))
         entry.live_module_id = module.id
-        created_by_code.setdefault(entry.module_code.upper(), []).append((draft.id, module))
+        created_by_code.setdefault(entry.module_code.upper(), []).append((programme, module))
 
-    for entry in active:
+    for entry in version.entries:
         for code in entry.prerequisite_list:
-            prerequisite = _resolve_prerequisite(code, entry.programme_id, created_by_code)
+            prerequisite = _pick(entry.programme.name, created_by_code.get(code, []), fallback=True)
             if prerequisite is not None and prerequisite.id != entry.live_module_id:
                 db.session.add(ModulePrerequisite(module_id=entry.live_module_id,
                                                   prerequisite_module_id=prerequisite.id))
 
-    if make_current:
-        for department in touched_departments.values():
-            for year in AcademicYear.query.filter_by(department_id=department.id).all():
-                year.is_current = year.label == version.academic_year_label
-                if year.is_current:
-                    year.status = "active"
+    for department_id, year in years.items():
+        for other in AcademicYear.query.filter_by(department_id=department_id).all():
+            journal.set(other, "is_current", other.id == year.id)
+        journal.set(year, "status", "active")
 
+    outcomes = [_reallocate(old, old_paths[old.id], created_by_code, journal) for old in old_modules]
+    old_codes = {_normalise_code(m.code) for m in old_modules}
+    for code, matches in created_by_code.items():
+        if code not in old_codes:
+            for programme, module in matches:
+                outcomes.append({"code": module.code, "name": module.name, "outcome": "new",
+                                 "to": programme.department.name, "resources": 0, "lecturers": 0})
+    flagged = _replace_students(created_by_code, years, journal)
+
+    hidden = []
+    for model in (Department, Programme, NtaLevel, Semester):
+        for row in model.query.filter_by(is_active=True).all():
+            if row.id not in touched[model.__tablename__]:
+                journal.set(row, "is_active", False)
+                if model is Department:
+                    hidden.append(row.name)
+
+    counts = {key: sum(1 for o in outcomes if o["outcome"] == key)
+              for key in ("carried", "moved", "new", "retired", "unplaced")}
+    version.allocation_report_json = json.dumps({
+        "counts": counts, "modules": outcomes, "flagged_students": flagged, "hidden_departments": hidden,
+    })
+    version.undo_journal_json = json.dumps(
+        {"changes": journal.changes, "created": journal.created, "watermarks": watermarks})
     version.status = "published"
-    version.published_by_id = user.id
+    version.published_by_id = getattr(user, "id", None)
     version.published_at = utcnow()
-    for department in touched_departments.values():
-        record_audit("curriculum.published", "CurriculumVersion", target_id=version.id,
-                     target_label=version.label, actor=user, department_id=department.id,
-                     details={"modules": len(active), "make_current": bool(make_current)})
-    return len(active)
+    record_audit("prospectus.published", "CurriculumVersion", target_id=version.id, target_label=version.label,
+                 actor=user, details={**counts, "flagged_students": len(flagged)})
 
 
-def archive_version(version, *, user):
-    if version.status != "published":
-        raise CurriculumWorkflowError("Only a published version can be archived.")
-    modules = Module.query.filter_by(curriculum_version_id=version.id).all()
-    for module in modules:
-        module.publication_status = "archived"
-        module.is_active = False
-    version.status = "archived"
-    version.archived_by_id = user.id
-    version.archived_at = utcnow()
-    record_audit("curriculum.archived", "CurriculumVersion", target_id=version.id,
-                 target_label=version.label, actor=user, details={"modules_retired": len(modules)})
-    return len(modules)
+def _pick(programme_name, matches, fallback=False):
+    """The new module an old one hands over to: same programme, else the only match."""
+    same = [module for programme, module in matches if programme.name.lower() == programme_name.lower()]
+    if same:
+        return same[0]
+    if len(matches) == 1 or (fallback and matches):
+        return matches[0][1]
+    return None
 
 
-def delete_unpublished_version(version, *, user):
-    if version.status in {"published", "archived"} or version.published_at:
-        raise CurriculumWorkflowError("Published curriculum is a historical record and cannot be deleted. Archive it instead.")
-    record_audit("curriculum.draft_deleted", "CurriculumVersion", target_id=version.id,
+def _reallocate(old, path, created_by_code, journal):
+    programme, department = path
+    matches = created_by_code.get(_normalise_code(old.code), []) if old.code else []
+    target = _pick(programme.name, matches)
+    if not matches:
+        outcome = "retired"
+    elif target is None:
+        outcome = "unplaced"
+    else:
+        target_department = target.semester.nta_level.programme.department
+        outcome = "carried" if target_department.id == department.id else "moved"
+
+    lecturers = 0
+    for assignment in LecturerAssignment.query.filter_by(module_id=old.id).all():
+        for _, module in matches:
+            if LecturerAssignment.query.filter_by(lecturer_id=assignment.lecturer_id, module_id=module.id).first():
+                continue
+            if module is target:
+                journal.set(assignment, "module_id", module.id)
+            else:
+                journal.add(LecturerAssignment(
+                    lecturer_id=assignment.lecturer_id, module_id=module.id, status=assignment.status,
+                    reviewed_by_id=assignment.reviewed_by_id, reviewed_at=assignment.reviewed_at))
+            db.session.flush()
+            lecturers += 1
+
+    resources = 0
+    if target is not None:
+        for resource in Resource.query.filter_by(module_id=old.id).all():
+            journal.set(resource, "module_id", target.id)
+            resources += 1
+        for topic in Topic.query.filter_by(module_id=old.id).all():
+            journal.set(topic, "module_id", target.id)
+        for registration in StudentModuleRegistration.query.filter_by(module_id=old.id).all():
+            if not StudentModuleRegistration.query.filter_by(student_id=registration.student_id,
+                                                             module_id=target.id).first():
+                journal.set(registration, "module_id", target.id)
+        db.session.flush()
+    return {
+        "code": old.code, "name": old.name, "outcome": outcome, "from": department.name,
+        "to": target.semester.nta_level.programme.department.name if target is not None else None,
+        "resources": resources if target is not None else Resource.query.filter_by(module_id=old.id).count(),
+        "lecturers": lecturers,
+    }
+
+
+def _replace_students(created_by_code, years, journal):
+    """Point each student at the matching programme, level and semester. Returns those left unmatched."""
+    programmes = {}
+    for matches in created_by_code.values():
+        for programme, _ in matches:
+            programmes[programme.id] = programme
+    flagged = []
+    students = User.query.filter(User.role == "student", User.programme_id.isnot(None)).all()
+    for student in students:
+        current = student.programme
+        if current.id in programmes:
+            target = current
+        else:
+            same_name = [p for p in programmes.values() if p.name.lower() == current.name.lower()]
+            target = same_name[0] if len(same_name) == 1 else None
+        level = semester = None
+        if target is not None and student.nta_level is not None:
+            level = NtaLevel.query.filter_by(programme_id=target.id,
+                                             level_number=student.nta_level.level_number).first()
+        if level is not None and student.semester is not None:
+            semester = Semester.query.filter_by(nta_level_id=level.id,
+                                                semester_number=student.semester.semester_number).first()
+        if semester is None:
+            flagged.append({"id": student.id, "name": student.full_name})
+            continue
+        journal.set(student, "department_id", target.department_id)
+        journal.set(student, "programme_id", target.id)
+        journal.set(student, "nta_level_id", level.id)
+        journal.set(student, "semester_id", semester.id)
+        journal.set(student, "academic_year_id", years[target.department_id].id)
+    return flagged
+
+
+def undo_last_publish(*, user):
+    """Reverse the live prospectus and bring back the one it replaced."""
+    version = live_version()
+    if version is None or not version.undo_journal_json:
+        raise CurriculumWorkflowError("There is no prospectus publish to undo.")
+    journal = json.loads(version.undo_journal_json)
+    created = {}
+    for table, row_id in journal["created"]:
+        created.setdefault(table, []).append(row_id)
+    for model in _WATERMARKED:
+        mark = journal["watermarks"].get(model.__tablename__, 0)
+        if model.query.filter(model.id > mark, model.module_id.in_(created.get("modules", [])),
+                              model.id.notin_(created.get(model.__tablename__, []))).first():
+            raise CurriculumWorkflowError(
+                "Lecturers have added content to the new modules since this prospectus went live, "
+                "so it can no longer be undone.")
+    for table, row_id, attr, old in reversed(journal["changes"]):
+        row = db.session.get(_MODELS[table], row_id)
+        if row is not None:
+            setattr(row, attr, old)
+    for table, row_id in journal["created"]:
+        row = db.session.get(_MODELS[table], row_id)
+        if row is None:
+            continue
+        if table == "modules":
+            row.publication_status, row.is_active = "archived", False
+        elif table == "lecturer_assignments":
+            db.session.delete(row)
+        elif table == "academic_years":
+            row.is_current = False
+        else:
+            row.is_active = False
+    version.status = "undone"
+    version.undone_by_id = getattr(user, "id", None)
+    version.undone_at = utcnow()
+    record_audit("prospectus.undone", "CurriculumVersion", target_id=version.id,
                  target_label=version.label, actor=user)
-    db.session.delete(version)
-
-
-def _require_editable(version):
-    if not version.is_editable:
-        raise CurriculumWorkflowError(
-            f"This version is {version.status_label.lower()} and can no longer be edited. Create a new version instead."
-        )
+    return version
 
 
 # ---------------------------------------------------------------------------
-# Live-tree helpers
+# Live-tree helpers (every change goes through the journal)
 # ---------------------------------------------------------------------------
 
-def _get_or_create_department(name):
+def _department(name, journal):
     department = Department.query.filter(db.func.lower(Department.name) == name.lower()).first()
     if department is None:
-        department = Department(name=name, slug=_unique_slug(Department, name), is_active=True,
-                                display_order=(db.session.query(db.func.max(Department.display_order)).scalar() or 0) + 1)
-        db.session.add(department)
-        db.session.flush()
-    department.is_active = True
+        return journal.add(Department(
+            name=name, slug=_unique_slug(Department, name), is_active=True,
+            display_order=(db.session.query(db.func.max(Department.display_order)).scalar() or 0) + 1))
+    journal.set(department, "is_active", True)
     return department
 
 
-def _get_or_create_programme(department, draft):
+def _programme(department, draft, journal):
     programme = Programme.query.filter(Programme.department_id == department.id,
                                        db.func.lower(Programme.name) == draft.name.lower()).first()
     if programme is None:
@@ -692,56 +756,38 @@ def _get_or_create_programme(department, draft):
         slug, n = base, 2
         while Programme.query.filter_by(department_id=department.id, slug=slug).first():
             slug, n = f"{base}-{n}", n + 1
-        programme = Programme(department_id=department.id, name=draft.name, slug=slug,
-                              description=draft.description, is_active=True,
-                              display_order=len(department.programmes) + 1)
-        db.session.add(programme)
-        db.session.flush()
-    programme.is_active = True
+        return journal.add(Programme(department_id=department.id, name=draft.name, slug=slug,
+                                     description=draft.description, is_active=True,
+                                     display_order=len(department.programmes) + 1))
+    journal.set(programme, "is_active", True)
     return programme
 
 
-def _get_or_create_level(programme, level_number, year_label):
+def _level(programme, level_number, year_label, journal):
     level = NtaLevel.query.filter_by(programme_id=programme.id, level_number=level_number).first()
     if level is None:
-        level = NtaLevel(programme_id=programme.id, level_number=level_number)
-        db.session.add(level)
-        db.session.flush()
-    level.is_active = True
+        return journal.add(NtaLevel(programme_id=programme.id, level_number=level_number,
+                                    year_label=year_label, is_active=True))
+    journal.set(level, "is_active", True)
     if year_label:
-        level.year_label = year_label
+        journal.set(level, "year_label", year_label)
     return level
 
 
-def _get_or_create_semester(level, semester_number):
+def _semester(level, semester_number, journal):
     semester = Semester.query.filter_by(nta_level_id=level.id, semester_number=semester_number).first()
     if semester is None:
-        semester = Semester(nta_level_id=level.id, semester_number=semester_number)
-        db.session.add(semester)
-        db.session.flush()
-    semester.is_active = True
+        return journal.add(Semester(nta_level_id=level.id, semester_number=semester_number, is_active=True))
+    journal.set(semester, "is_active", True)
     return semester
 
 
-def _get_or_create_year(department, label, user):
+def _year(department, label, user, journal):
     year = AcademicYear.query.filter_by(department_id=department.id, label=label).first()
     if year is None:
-        has_current = AcademicYear.query.filter_by(department_id=department.id, is_current=True).first()
-        year = AcademicYear(department_id=department.id, label=label, status="active",
-                            is_current=has_current is None, created_by_id=user.id)
-        db.session.add(year)
-        db.session.flush()
+        return journal.add(AcademicYear(department_id=department.id, label=label, status="active",
+                                        is_current=False, created_by_id=getattr(user, "id", None)))
     return year
-
-
-def _resolve_prerequisite(code, draft_programme_id, created_by_code):
-    candidates = created_by_code.get(code.upper(), [])
-    same = [module for prog_id, module in candidates if prog_id == draft_programme_id]
-    if same:
-        return same[0]
-    if candidates:
-        return candidates[0][1]
-    return _live_module_with_code(code)
 
 
 def _unique_slug(model, name):
@@ -786,50 +832,3 @@ def _to_decimal(value):
         return Decimal(str(value).strip())
     except (InvalidOperation, ValueError):
         return None
-
-
-def entry_from_form(entry, form, version):
-    """Apply an administrator's corrections to a staged entry."""
-    _require_editable(version)
-    programme_id = _to_int(form.get("programme_id"))
-    programme = next((p for p in version.programmes if p.id == programme_id), None)
-    entry.programme = programme
-    entry.nta_level = _to_int(form.get("nta_level"))
-    entry.semester_number = _to_int(form.get("semester_number"))
-    entry.module_code = _normalise_code(form.get("module_code"))
-    entry.module_name = " ".join((form.get("module_name") or "").split())[:200] or None
-    module_type = form.get("module_type") or "core"
-    entry.module_type = module_type if module_type in MODULE_TYPES else "core"
-    raw_credits = (form.get("credits") or "").strip()
-    credits = _to_decimal(raw_credits)
-    if raw_credits and credits is None:
-        raise CurriculumWorkflowError("Credits must be a number, or left blank if the prospectus omits them.")
-    entry.credits = credits
-    entry.description = (form.get("description") or "").strip()[:4000] or None
-    entry.prerequisite_codes = _normalise_codes(form.get("prerequisite_codes"))
-    review_status = form.get("review_status") or "needs_review"
-    entry.review_status = review_status if review_status in {"needs_review", "reviewed", "rejected"} else "needs_review"
-    mark_changed(version)
-
-
-def programme_from_form(programme, form, version):
-    _require_editable(version)
-    department_name = " ".join((form.get("department_name") or "").split())[:150]
-    name = " ".join((form.get("name") or "").split())[:150]
-    if len(department_name) < 2 or len(name) < 3:
-        raise CurriculumWorkflowError("Enter the department and programme names exactly as printed in the prospectus.")
-    levels = sorted({int(part) for part in re.split(r"[,\s]+", form.get("levels_csv") or "") if part.isdigit()})
-    if not levels:
-        raise CurriculumWorkflowError("List the NTA levels this programme covers, e.g. 4, 5, 6.")
-    semesters = _to_int(form.get("semesters_per_level")) or 2
-    duplicate = next((p for p in version.programmes if p is not programme
-                      and p.department_name.lower() == department_name.lower() and p.name.lower() == name.lower()), None)
-    if duplicate:
-        raise CurriculumWorkflowError("That programme is already defined in this version.")
-    programme.department_name = department_name
-    programme.name = name
-    programme.description = (form.get("description") or "").strip()[:2000] or None
-    programme.levels_csv = ",".join(str(level) for level in levels)
-    programme.semesters_per_level = semesters
-    programme.year_labels = (form.get("year_labels") or "").strip()[:200] or None
-    mark_changed(version)

@@ -3,24 +3,16 @@
 from urllib.parse import urlparse
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, current_app
-from flask_login import login_user, logout_user, login_required, current_user
+from flask_login import login_user, logout_user, current_user
 
 from extensions import db
 from models import (
     AcademicYear, Department, Programme, NtaLevel, Semester, User,
-    LecturerRequest, utcnow,
+    LecturerRequest,
 )
 
 
 auth_bp = Blueprint("auth", __name__)
-
-ROLE_LABELS = {
-    "student": "Student",
-    "lecturer": "Lecturer",
-    "department_head": "Head of Department",
-    "admin": "Curriculum Administrator",
-}
-
 
 def _safe_next(target):
     """Only allow redirecting to a same-site relative path."""
@@ -46,8 +38,6 @@ def _role_for_registration_number(value):
 
 
 def _destination(user):
-    if user.is_admin:
-        return url_for("admin.dashboard")
     if user.is_department_head:
         return url_for("department.dashboard")
     if user.is_lecturer:

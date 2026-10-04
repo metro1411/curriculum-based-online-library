@@ -184,22 +184,17 @@ def approved_lecturer(app, hod, register_lecturer, seeded):
 
 
 @pytest.fixture
-def hod_module_id(app, hod, seeded):
+def hod_module_id(app, seeded):
+    """A fresh live module in the student's semester (modules normally come from a prospectus)."""
     with app.app_context():
         year = AcademicYear.query.filter_by(department_id=seeded["department_id"], is_current=True).one()
-        year_id = year.id
-        code = f"EE-TEST-{Module.query.count():03d}"
-    response = hod.post("/department/curriculum", data={
-        "action": "module", "academic_year_id": year_id,
-        "programme_id": seeded["programme_id"], "nta_level_id": seeded["level_id"],
-        "semester_id": seeded["semester_id"], "code": code,
-        "name": "Academic Workflow Verification", "module_type": "general_studies",
-        "cohort_label": "EE5-QA", "description": "Isolated test curriculum module.",
-    })
-    assert response.status_code == 302
-    with app.app_context():
-        module = Module.query.filter_by(code=code).one()
-        assert module.module_type == "general_studies" and module.academic_year_id == year_id
+        module = Module(semester_id=seeded["semester_id"], academic_year_id=year.id,
+                        code=f"EE-TEST-{Module.query.count():03d}", name="Academic Workflow Verification",
+                        module_type="general_studies", cohort_label="EE5-QA",
+                        description="Isolated test curriculum module.", publication_status="published",
+                        is_active=True, provenance="prospectus")
+        db.session.add(module)
+        db.session.commit()
         return module.id
 
 
@@ -210,17 +205,3 @@ def user_id(app, registration_number):
 
 __all__ = ["db", "sign_in", "placement", "user_id"]
 
-
-ADMIN = ("curriculum.admin@example.test", "CurriculumAdmin@123")
-
-
-@pytest.fixture(scope="session")
-def admin(app):
-    """A curriculum administrator created through the audited CLI command."""
-    runner = app.test_cli_runner()
-    result = runner.invoke(args=[
-        "create-curriculum-admin", "--email", ADMIN[0], "--name", "Curriculum Admin",
-        "--password", ADMIN[1],
-    ])
-    assert result.exit_code == 0, result.output
-    return sign_in(app.test_client(), *ADMIN)

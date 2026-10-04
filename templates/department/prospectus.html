@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Prospectus | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header"><span class="page-header__eyebrow">Source of truth</span><h1>Prospectus</h1><p>The live prospectus decides every module in every department. A clean upload goes live at once; any problem stops it and nothing changes.</p></div>
+
+  <div class="curriculum-admin-grid">
+    <section class="card card-pad">
+      <div class="section-header"><div><h2>Upload</h2></div></div>
+      <form method="POST" enctype="multipart/form-data" data-confirm="Publish this prospectus? It replaces every live module in every department."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group"><label class="form-label" for="file">File</label><input class="form-input" type="file" id="file" name="file" accept=".pdf,.docx,.txt,.md,.csv" required><small class="form-hint">Text PDF, DOCX or the CSV template. Scanned PDFs cannot be read.</small></div>
+        <div class="form-grid form-grid--two">
+          <div class="form-group"><label class="form-label" for="title">Title</label><input class="form-input" id="title" name="title" maxlength="250" required></div>
+          <div class="form-group"><label class="form-label" for="academic_year_label">Academic year</label><input class="form-input" id="academic_year_label" name="academic_year_label" pattern="\d{4}/\d{4}" placeholder="2026/2027" required></div>
+        </div>
+        <label class="form-check"><input type="checkbox" name="allow_large_change"> Confirm a large change (retires more than half of the live modules)</label>
+        <button class="btn btn-primary mt-4">Upload and publish</button>
+      </form>
+    </section>
+    <section class="card card-pad">
+      <div class="section-header"><div><h2>Live now</h2></div></div>
+      {% if live %}
+        <p><strong>{{ live.label }}</strong><br><small>Published {{ live.published_at.strftime('%d %b %Y · %H:%M') }}{{ ' by ' ~ live.published_by.full_name if live.published_by }}</small></p>
+        <div class="table-actions"><a class="btn btn-secondary btn-sm" href="{{ url_for('department.prospectus_result', version_id=live.id) }}">View report</a>
+        <form method="POST" action="{{ url_for('department.prospectus_undo') }}" data-confirm="Undo this prospectus? The one before it becomes live again."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-ghost btn-sm">Undo</button></form></div>
+      {% else %}<p>No prospectus is live yet.</p>{% endif %}
+    </section>
+  </div>
+
+  <section class="card card-pad mt-6">
+    <div class="section-header"><div><h2>Upload history</h2></div></div>
+    <div class="responsive-table"><table class="data-table"><thead><tr><th>Prospectus</th><th>Status</th><th>Uploaded</th><th></th></tr></thead><tbody>
+    {% for version in versions %}<tr><td><strong>{{ version.label }}</strong></td><td><span class="status-chip status-chip--{{ 'success' if version.status == 'published' else 'muted' }}">{{ version.status_label }}</span></td><td>{{ version.created_at.strftime('%d %b %Y · %H:%M') }}<small>{{ version.created_by.full_name if version.created_by else '' }}</small></td><td><div class="table-actions"><a class="btn btn-ghost btn-sm" href="{{ url_for('department.prospectus_result', version_id=version.id) }}">Details</a>{% if version.prospectus_document %}<a class="btn btn-ghost btn-sm" href="{{ url_for('department.prospectus_file', version_id=version.id) }}">File</a>{% endif %}</div></td></tr>
+    {% else %}<tr><td colspan="4">No uploads yet.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</div>
+{% endblock %}

@@ -8,7 +8,7 @@ Curriculum hierarchy (mirrors the DIT / NTA academic structure):
     Department -> Programme -> NtaLevel -> Semester -> Module -> Resource
 
 Supporting models:
-    User            students, lecturers, HODs and curriculum administrators
+    User            students, lecturers and heads of department
 
 Curriculum / prospectus backbone (see docs/CURRICULUM_ARCHITECTURE.md):
     ProspectusDocument      the original uploaded prospectus, kept for audit
@@ -27,6 +27,7 @@ Curriculum / prospectus backbone (see docs/CURRICULUM_ARCHITECTURE.md):
     AIMessage       one message (user or assistant) inside a conversation
 """
 
+import json
 from datetime import datetime, timezone
 import secrets
 
@@ -64,7 +65,7 @@ class User(UserMixin, db.Model):
     registration_number = db.Column(db.String(10), unique=True, nullable=True, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
 
-    # 'student', 'lecturer', 'department_head' or 'admin' (curriculum administrator)
+    # 'student', 'lecturer' or 'department_head'
     role = db.Column(db.String(20), nullable=False, default="student", index=True)
     # Pending lecturer accounts cannot sign in or publish until the department
     # head reviews the request. Existing accounts are treated as active.
@@ -112,11 +113,6 @@ class User(UserMixin, db.Model):
     @property
     def is_department_head(self):
         return self.role == "department_head"
-
-    @property
-    def is_admin(self):
-        """Curriculum administrator: manages prospectus versions institution-wide."""
-        return self.role == "admin"
 
     @property
     def is_pending(self):
@@ -811,11 +807,11 @@ class AuditLog(db.Model):
 # ---------------------------------------------------------------------------
 
 CURRICULUM_VERSION_STATUSES = (
+    ("published", "Live"),
+    ("archived", "Replaced"),
+    ("failed", "Stopped"),
+    ("undone", "Undone"),
     ("draft", "Draft"),
-    ("validated", "Validated"),
-    ("approved", "Approved"),
-    ("published", "Published"),
-    ("archived", "Archived"),
 )
 CURRICULUM_VERSION_STATUS_LABELS = dict(CURRICULUM_VERSION_STATUSES)
 
@@ -859,12 +855,13 @@ class ProspectusChunk(db.Model):
 
 
 class CurriculumVersion(db.Model):
-    """A reviewable prospectus edition.
+    """One prospectus upload and its outcome.
 
-    Draft content lives in DraftProgramme / CurriculumEntry staging rows and
-    is invisible to students. Publishing materialises it into the live
-    Department -> Programme -> NtaLevel -> Semester -> Module tree under the
-    version's academic year; archiving retires it without deleting anything.
+    The modules read from the file are staged in DraftProgramme /
+    CurriculumEntry rows. A clean read is published straight into the live
+    Department -> Programme -> NtaLevel -> Semester -> Module tree, replacing
+    every live module (see curriculum_service.publish_upload). A failed read
+    keeps its staged rows and error report and changes nothing live.
     """
 
     __tablename__ = "curriculum_versions"
@@ -883,6 +880,12 @@ class CurriculumVersion(db.Model):
     )
     last_validation_json = db.Column(db.Text, nullable=True)
     validated_at = db.Column(db.DateTime, nullable=True)
+    # Outcome per module (carried, moved, new, retired, unplaced) for the HOD.
+    allocation_report_json = db.Column(db.Text, nullable=True)
+    # Every live-row change made by the publish, so it can be undone exactly.
+    undo_journal_json = db.Column(db.Text, nullable=True)
+    undone_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    undone_at = db.Column(db.DateTime, nullable=True)
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     approved_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
@@ -912,9 +915,18 @@ class CurriculumVersion(db.Model):
         return CURRICULUM_VERSION_STATUS_LABELS.get(self.status, self.status.title())
 
     @property
-    def is_editable(self):
-        """Published and archived versions are immutable historical records."""
-        return self.status in {"draft", "validated", "approved"}
+    def allocation_report(self):
+        try:
+            return json.loads(self.allocation_report_json or "{}")
+        except ValueError:
+            return {}
+
+    @property
+    def validation_errors(self):
+        try:
+            return json.loads(self.last_validation_json or "{}").get("errors", [])
+        except ValueError:
+            return []
 
 
 class DraftProgramme(db.Model):
@@ -960,11 +972,8 @@ class DraftProgramme(db.Model):
         return mapping
 
 
-ENTRY_REVIEW_STATUSES = (("needs_review", "Needs review"), ("reviewed", "Reviewed"), ("rejected", "Rejected"))
-
-
 class CurriculumEntry(db.Model):
-    """One staged module line awaiting administrator review."""
+    """One module line read from an uploaded prospectus."""
 
     __tablename__ = "curriculum_entries"
 
@@ -998,10 +1007,6 @@ class CurriculumEntry(db.Model):
     def prerequisite_list(self):
         return [code.strip().upper() for code in (self.prerequisite_codes or "").split(",") if code.strip()]
 
-    @property
-    def review_label(self):
-        return dict(ENTRY_REVIEW_STATUSES).get(self.review_status, self.review_status)
-
 
 class ModulePrerequisite(db.Model):
     __tablename__ = "module_prerequisites"
@@ -1026,7 +1031,7 @@ class ModulePrerequisite(db.Model):
 
 ACADEMIC_CONTEXT_SOURCES = {
     "self_registration": "Self-registered at sign-up",
-    "internal_admin": "Set by a curriculum administrator",
+    "internal_admin": "Set by the Head of Department",
     "soma": "Synchronised from SOMA",
 }
 

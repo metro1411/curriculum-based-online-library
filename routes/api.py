@@ -52,8 +52,6 @@ def _visible_module_query():
         return Module.query.join(Semester).join(NtaLevel).join(Programme).filter(
             Programme.department_id == current_user.department_id
         )
-    if current_user.is_admin:
-        return Module.query
     abort(403)
 
 
@@ -95,8 +93,6 @@ def _visible_resource_query():
         return Resource.query.join(Module).join(Semester).join(NtaLevel).join(Programme).filter(
             Programme.department_id == current_user.department_id
         )
-    if current_user.is_admin:
-        return Resource.query
     abort(403)
 
 
@@ -330,10 +326,10 @@ def my_recommendations():
 @api_bp.route("/curriculum/versions")
 @login_required
 def curriculum_versions():
-    """Administrators and HODs see every version; others see published ones only."""
+    """HODs see every upload; others see the live and replaced ones only."""
     query = CurriculumVersion.query.order_by(CurriculumVersion.created_at.desc())
-    if not (current_user.is_admin or current_user.is_department_head):
-        query = query.filter(CurriculumVersion.status == "published")
+    if not current_user.is_department_head:
+        query = query.filter(CurriculumVersion.status.in_(("published", "archived")))
     return jsonify(versions=[{
         "id": v.id, "label": v.label, "academic_year": v.academic_year_label,
         "status": v.status, "is_demo": v.is_demo,
@@ -346,19 +342,18 @@ def curriculum_versions():
 @login_required
 def curriculum_version_detail(version_id):
     version = db.get_or_404(CurriculumVersion, version_id)
-    privileged = current_user.is_admin or current_user.is_department_head
-    if not privileged and version.status != "published":
+    if not current_user.is_department_head and version.status not in ("published", "archived"):
         abort(404)
     payload = {
         "id": version.id, "label": version.label, "academic_year": version.academic_year_label,
         "status": version.status, "is_demo": version.is_demo,
     }
-    if current_user.is_admin:
+    if current_user.is_department_head:
         payload["entries"] = [{
             "id": e.id, "programme": e.programme.name if e.programme else None,
             "department": e.programme.department_name if e.programme else None,
             "nta_level": e.nta_level, "semester": e.semester_number, "module_code": e.module_code,
             "module_name": e.module_name, "credits": str(e.credits) if e.credits is not None else None,
-            "prerequisites": e.prerequisite_list, "review_status": e.review_status, "origin": e.origin,
+            "prerequisites": e.prerequisite_list, "origin": e.origin,
         } for e in version.entries]
     return jsonify(version=payload)

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ version.label }} | {{ app_name }}{% endblock %}
+{% set outcome_labels = {'carried': 'Carried over', 'moved': 'Moved', 'new': 'New', 'retired': 'Retired', 'unplaced': 'Needs placing'} %}
+{% block content %}
+<div class="container fade-in">
+  <div class="page-header page-header--split"><div><span class="page-header__eyebrow">{{ version.status_label }}{{ ' · live' if is_live }}</span><h1>{{ version.label }}</h1><p>{% if version.status == 'failed' %}Nothing was published. Fix these problems in the file and upload it again.{% elif version.published_at %}Published {{ version.published_at.strftime('%d %b %Y · %H:%M') }}.{% endif %}</p></div><a class="btn btn-secondary" href="{{ url_for('department.prospectus') }}">Back to prospectus</a></div>
+
+  {% if version.status == 'failed' %}
+  <section class="card card-pad">
+    <div class="section-header"><div><h2>Problems</h2></div><span class="badge badge-warning">{{ version.validation_errors|length }}</span></div>
+    <ul>{% for issue in version.validation_errors %}<li>{{ issue.message }}{% if issue.source %} <small>({{ issue.source }})</small>{% endif %}</li>{% endfor %}</ul>
+  </section>
+  {% elif report %}
+  <section class="stat-grid">
+    {% for key in ['carried', 'moved', 'new', 'retired', 'unplaced'] %}<article class="card stat-card"><div class="stat-card__value">{{ report.counts[key] }}</div><div class="stat-card__label">{{ outcome_labels[key] }}</div></article>{% endfor %}
+  </section>
+  {% if report.flagged_students or report.hidden_departments %}
+  <section class="card card-pad mb-6">
+    {% if report.flagged_students %}<h2>Students to place</h2><p>Their programme, level or semester is not in this prospectus.</p><ul>{% for student in report.flagged_students %}<li><a href="{{ url_for('department.student_context', user_id=student.id) }}">{{ student.name }}</a></li>{% endfor %}</ul>{% endif %}
+    {% if report.hidden_departments %}<h2>Hidden departments</h2><p>{{ report.hidden_departments|join(', ') }}</p>{% endif %}
+  </section>
+  {% endif %}
+  <section class="card card-pad">
+    <div class="section-header"><div><h2>Modules</h2></div></div>
+    <div class="responsive-table"><table class="data-table"><thead><tr><th>Module</th><th>Outcome</th><th>Department</th><th>Resources</th><th>Lecturers</th></tr></thead><tbody>
+    {% for item in report.modules %}<tr><td><strong>{{ item.code or 'No code' }}</strong><span>{{ item.name }}</span></td><td>{{ outcome_labels[item.outcome] }}</td><td>{% if item.outcome == 'moved' %}{{ item['from'] }} → {{ item.to }}{% else %}{{ item.to or item['from'] }}{% endif %}</td><td>{{ item.resources }}</td><td>{{ item.lecturers }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

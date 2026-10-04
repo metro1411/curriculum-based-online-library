@@ -163,24 +163,24 @@ def test_unmatched_programme_is_not_created(app, fresh_student):
         assert Programme.query.filter_by(name="DEMO Unknown").first() is None
 
 
-def test_admin_sync_button_reports_missing_configuration(app, admin, fresh_student):
+def test_hod_sync_button_reports_missing_configuration(app, hod, fresh_student):
     student_id, _ = fresh_student
-    response = admin.post(f"/admin/students/{student_id}/soma-sync", follow_redirects=True)
+    response = hod.post(f"/department/students/{student_id}/soma-sync", follow_redirects=True)
     assert b"SOMA integration is not configured" in response.data
 
 
-def test_admin_sets_internal_context_with_audit(app, admin, fresh_student, seeded):
+def test_hod_sets_internal_context_with_audit(app, hod, fresh_student, seeded):
     student_id, client = fresh_student
     with app.app_context():
         student = db.session.get(User, student_id)
         form = {"programme_id": student.programme_id, "nta_level_id": student.nta_level_id,
                 "semester_id": student.semester_id, "academic_year_id": student.academic_year_id,
                 "module_ids": [str(seeded["module_id"])]}
-    assert admin.post(f"/admin/students/{student_id}/context", data=form).status_code == 302
+    assert hod.post(f"/department/students/{student_id}", data=form).status_code == 302
     with app.app_context():
         assert StudentAcademicContext.query.filter_by(student_id=student_id).one().source == "internal_admin"
         assert StudentModuleRegistration.query.filter_by(student_id=student_id, module_id=seeded["module_id"]).count() == 1
         assert AuditLog.query.filter_by(action="student_context.updated", target_id=str(student_id)).count() == 1
     bad = dict(form, semester_id=999999)
-    response = admin.post(f"/admin/students/{student_id}/context", data=bad, follow_redirects=True)
+    response = hod.post(f"/department/students/{student_id}", data=bad, follow_redirects=True)
     assert b"Choose a programme" in response.data
